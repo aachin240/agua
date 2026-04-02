@@ -4,7 +4,9 @@ import '../models/lectura.dart';
 
 class LecturaService {
   static const String baseUrl =
-      'http://10.0.2.2:8093/scriptcase/app/agua/web_service_lectura/';
+      //'http://10.0.2.2:8093/scriptcase/app/agua/web_service_lectura/';
+      //'http://192.168.1.113:8093/scriptcase/app/agua/web_service_lectura/';
+      'http://10.201.51.59:8093/scriptcase/app/agua/web_service_lectura/';
 
   Future<List<Lectura>> listarTodo() async {
     final uri = Uri.parse(baseUrl);
@@ -37,8 +39,12 @@ class LecturaService {
     required String numeroMedidor,
     required int lecturaActual,
     required String fechaLectura,
-    required double latitud,
-    required double longitud,
+    double? latitudGps,
+    double? longitudGps,
+    String? fotoPathLocal,
+    String? fotoFechaToma,
+    double? fotoLatitud,
+    double? fotoLongitud,
   }) async {
     final uri = Uri.parse(baseUrl);
 
@@ -49,8 +55,13 @@ class LecturaService {
         'numero_medidor': numeroMedidor,
         'lectura_actual': lecturaActual,
         'fecha_lectura': fechaLectura,
-        'latitud': latitud,
-        'longitud': longitud,
+        'latitud_gps': latitudGps,
+        'longitud_gps': longitudGps,
+        'foto_path_local': fotoPathLocal ?? '',
+        'foto_fecha_toma': fotoFechaToma,
+        'foto_latitud': fotoLatitud,
+        'foto_longitud': fotoLongitud,
+        'usuario_actualizo': '',
       }),
     );
 

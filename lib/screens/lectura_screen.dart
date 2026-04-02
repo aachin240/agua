@@ -1,4 +1,10 @@
+import 'dart:io';
+import 'package:exif_reader/exif_reader.dart';
 import 'package:flutter/material.dart';
+import 'package:geolocator/geolocator.dart';
+import 'package:image_picker/image_picker.dart';
+import 'package:native_exif/native_exif.dart';
+import 'package:path_provider/path_provider.dart';
 import '../models/lectura.dart';
 import '../services/lectura_service.dart';
 
@@ -12,18 +18,24 @@ class LecturaScreen extends StatefulWidget {
 class _LecturaScreenState extends State<LecturaScreen> {
   final LecturaService service = LecturaService();
 
+  final ImagePicker _picker = ImagePicker();
+  XFile? fotoTomada;
+  String? fotoGuardadaPath;
+  String? fotoFechaTomaExif;
+  double? fotoLatitudExif;
+  double? fotoLongitudExif;
+
   final TextEditingController medidorCtrl = TextEditingController();
   final TextEditingController lecturaActualCtrl = TextEditingController();
-  final TextEditingController fechaCtrl = TextEditingController();
-  final TextEditingController latitudCtrl = TextEditingController();
-  final TextEditingController longitudCtrl = TextEditingController();
 
   Lectura? lectura;
   List<Lectura> lecturas = [];
+
   String mensaje = '';
   bool cargando = false;
   bool mostrarDetalle = false;
   bool mostrarFormularioActualizar = false;
+  bool mostrarLista = true;
 
   @override
   void initState() {
@@ -35,18 +47,176 @@ class _LecturaScreenState extends State<LecturaScreen> {
   void dispose() {
     medidorCtrl.dispose();
     lecturaActualCtrl.dispose();
-    fechaCtrl.dispose();
-    latitudCtrl.dispose();
-    longitudCtrl.dispose();
     super.dispose();
   }
 
-  // =========================
-  // MÉTODOS
-  // =========================
+  Future<void> probarExifReader(String rutaFoto) async {
+    try {
+      final bytes = await File(rutaFoto).readAsBytes();
+      final exif = await readExifFromBytes(bytes);
+
+      print('========== EXIF_READER ==========');
+      print('RUTA FOTO: $rutaFoto');
+
+      if (exif.warnings.isNotEmpty) {
+        print('Warnings:');
+        for (final warning in exif.warnings) {
+          print('  $warning');
+        }
+      }
+
+      if (exif.tags.isEmpty) {
+        print('No EXIF information found');
+        return;
+      }
+
+      print('GPSLatitude: ${exif.tags['GPSLatitude']}');
+      print('GPSLatitudeRef: ${exif.tags['GPSLatitudeRef']}');
+      print('GPSLongitude: ${exif.tags['GPSLongitude']}');
+      print('GPSLongitudeRef: ${exif.tags['GPSLongitudeRef']}');
+      print('DateTimeOriginal: ${exif.tags['DateTimeOriginal']}');
+      print('Todos los tags: ${exif.tags}');
+      print('===============================');
+    } catch (e) {
+      print('ERROR EXIF_READER: $e');
+    }
+  }
+
+  void limpiarFotoTemporal() {
+    fotoTomada = null;
+    fotoGuardadaPath = null;
+    fotoFechaTomaExif = null;
+    fotoLatitudExif = null;
+    fotoLongitudExif = null;
+  }
+  Future<Position> _obtenerUbicacionActual() async {
+    bool serviceEnabled;
+    LocationPermission permission;
+
+    serviceEnabled = await Geolocator.isLocationServiceEnabled();
+    if (!serviceEnabled) {
+      throw Exception('El GPS del dispositivo está desactivado');
+    }
+
+    permission = await Geolocator.checkPermission();
+
+    if (permission == LocationPermission.denied) {
+      permission = await Geolocator.requestPermission();
+      if (permission == LocationPermission.denied) {
+        throw Exception('Permiso de ubicación denegado');
+      }
+    }
+
+    if (permission == LocationPermission.deniedForever) {
+      throw Exception('Permiso de ubicación denegado permanentemente');
+    }
+
+    return await Geolocator.getCurrentPosition(
+      desiredAccuracy: LocationAccuracy.high,
+    );
+  }
+
+  Future<String> _guardarFotoEnApp(XFile foto) async {
+    final dir = await getApplicationDocumentsDirectory();
+    final carpeta = Directory('${dir.path}/fotos_medidor');
+
+    if (!await carpeta.exists()) {
+      await carpeta.create(recursive: true);
+    }
+
+    final nombre =
+        'medidor_${DateTime.now().millisecondsSinceEpoch}.jpg';
+    final destino = '${carpeta.path}/$nombre';
+
+    final archivoOriginal = File(foto.path);
+    final archivoNuevo = await archivoOriginal.copy(destino);
+
+    return archivoNuevo.path;
+  }
+
+  Future<void> tomarFoto() async {
+    print('Entro a tomar foto');
+    try {
+      final XFile? foto = await _picker.pickImage(
+        source: ImageSource.gallery,
+      );
+
+
+      if (foto == null) return;
+
+      print('RUTA ORIGINAL PICKER: ${foto.path}');
+
+      final exifOriginal = await Exif.fromPath(foto.path);
+      final coordsOriginal = await exifOriginal.getLatLong();
+      final attrsOriginal = await exifOriginal.getAttributes();
+
+      print('ORIGINAL coords: $coordsOriginal');
+      print('ORIGINAL GPSLatitude: ${attrsOriginal?["GPSLatitude"]}');
+      print('ORIGINAL GPSLatitudeRef: ${attrsOriginal?["GPSLatitudeRef"]}');
+      print('ORIGINAL GPSLongitude: ${attrsOriginal?["GPSLongitude"]}');
+      print('ORIGINAL GPSLongitudeRef: ${attrsOriginal?["GPSLongitudeRef"]}');
+
+      await exifOriginal.close();
+
+      final rutaFinal = await _guardarFotoEnApp(foto);
+      //await probarExifReader(rutaFinal);
+
+      String? fechaExif;
+      double? latExif;
+      double? longExif;
+
+      try {
+        final exif = await Exif.fromPath(rutaFinal);
+
+        final originalDate = await exif.getOriginalDate();
+        final coordinates = await exif.getLatLong();
+        final attrs = await exif.getAttributes();
+
+        fechaExif = originalDate?.toString();
+        print('RUTA FOTO: $rutaFinal');
+        print('EXIF fecha: $originalDate');
+        print('EXIF coordinates: $coordinates');
+        print('EXIF GPSLatitude: ${attrs?["GPSLatitude"]}');
+        print('EXIF GPSLatitudeRef: ${attrs?["GPSLatitudeRef"]}');
+        print('EXIF GPSLongitude: ${attrs?["GPSLongitude"]}');
+        print('EXIF GPSLongitudeRef: ${attrs?["GPSLongitudeRef"]}');
+
+        if (coordinates != null) {
+          print(coordinates);
+          latExif = coordinates.latitude;
+          longExif = coordinates.longitude;
+        }
+
+        await exif.close();
+      } catch (_) {
+        // Si no hay EXIF o falla la lectura, seguimos sin romper el flujo
+      }
+
+      setState(() {
+        fotoTomada = foto;
+        fotoGuardadaPath = rutaFinal;
+        fotoFechaTomaExif = fechaExif;
+        fotoLatitudExif = latExif;
+        fotoLongitudExif = longExif;
+        mensaje = 'Foto tomada correctamente';
+      });
+    } catch (e) {
+      setState(() {
+        mensaje = 'Error al tomar la foto: $e';
+      });
+    }
+  }
+
   Future<void> listarTodo() async {
     setState(() {
       cargando = true;
+      mostrarLista = true;
+      mostrarDetalle = false;
+      mostrarFormularioActualizar = false;
+      lectura = null;
+      mensaje = '';
+
+      limpiarFotoTemporal();
     });
 
     try {
@@ -54,7 +224,6 @@ class _LecturaScreenState extends State<LecturaScreen> {
 
       setState(() {
         lecturas = lista;
-        mensaje = '';
       });
     } catch (e) {
       setState(() {
@@ -73,15 +242,13 @@ class _LecturaScreenState extends State<LecturaScreen> {
     if (numeroMedidor.isEmpty) {
       setState(() {
         mensaje = 'Ingresa un número de medidor';
-        lectura = null;
-        mostrarDetalle = false;
-        mostrarFormularioActualizar = false;
       });
       return;
     }
 
     setState(() {
       cargando = true;
+      mensaje = '';
     });
 
     try {
@@ -89,35 +256,37 @@ class _LecturaScreenState extends State<LecturaScreen> {
 
       setState(() {
         lectura = dato;
-        mensaje = '';
+        mostrarLista = false;
         mostrarDetalle = true;
         mostrarFormularioActualizar = false;
-
-        // Carga valores actuales en el formulario
         lecturaActualCtrl.text =
         dato.lecturaActual == null ? '' : dato.lecturaActual.toString();
 
-        fechaCtrl.text =
-        dato.fechaLectura == null ? '' : dato.fechaLectura.toString();
-
-        latitudCtrl.text =
-        dato.latitud == null ? '' : dato.latitud.toString();
-
-        longitudCtrl.text =
-        dato.longitud == null ? '' : dato.longitud.toString();
+        limpiarFotoTemporal();
       });
     } catch (e) {
       setState(() {
         lectura = null;
         mostrarDetalle = false;
         mostrarFormularioActualizar = false;
-        mensaje = 'No encontrado o error: $e';
+        mensaje = 'No encontrado o error';
       });
     } finally {
       setState(() {
         cargando = false;
       });
     }
+  }
+
+  String _fechaActualSql() {
+    final now = DateTime.now();
+    final y = now.year.toString().padLeft(4, '0');
+    final m = now.month.toString().padLeft(2, '0');
+    final d = now.day.toString().padLeft(2, '0');
+    final h = now.hour.toString().padLeft(2, '0');
+    final min = now.minute.toString().padLeft(2, '0');
+    final s = now.second.toString().padLeft(2, '0');
+    return '$y-$m-$d $h:$min:$s';
   }
 
   Future<void> actualizar() async {
@@ -128,43 +297,44 @@ class _LecturaScreenState extends State<LecturaScreen> {
       return;
     }
 
-    final int? lecturaActual =
-    int.tryParse(lecturaActualCtrl.text.trim());
+    final int? lecturaActual = int.tryParse(lecturaActualCtrl.text.trim());
 
-    final double? latitud = double.tryParse(
-      latitudCtrl.text.trim().replaceAll(',', '.'),
-    );
-
-    final double? longitud = double.tryParse(
-      longitudCtrl.text.trim().replaceAll(',', '.'),
-    );
-
-    if (lecturaActual == null || latitud == null || longitud == null) {
+    if (lecturaActual == null) {
       setState(() {
-        mensaje = 'Verifica lectura actual, latitud y longitud';
+        mensaje = 'Ingresa una lectura actual válida';
       });
       return;
     }
 
     setState(() {
       cargando = true;
+      mensaje = '';
     });
 
     try {
+      final posicion = await _obtenerUbicacionActual();
+
       final msg = await service.actualizarLectura(
         numeroMedidor: medidorCtrl.text.trim(),
         lecturaActual: lecturaActual,
-        fechaLectura: fechaCtrl.text.trim(),
-        latitud: latitud,
-        longitud: longitud,
+        fechaLectura: _fechaActualSql(),
+        latitudGps: posicion.latitude,
+        longitudGps: posicion.longitude,
+        fotoPathLocal: fotoGuardadaPath,
+        fotoFechaToma: fotoFechaTomaExif,
+        fotoLatitud: fotoLatitudExif,
+        fotoLongitud: fotoLongitudExif,
       );
 
-      await buscar();
-      await listarTodo();
+      final datoActualizado =
+      await service.buscarPorMedidor(medidorCtrl.text.trim());
 
       setState(() {
-        mensaje = msg;
+        lectura = datoActualizado;
+        mostrarLista = false;
+        mostrarDetalle = true;
         mostrarFormularioActualizar = false;
+        mensaje = msg;
       });
     } catch (e) {
       setState(() {
@@ -177,17 +347,6 @@ class _LecturaScreenState extends State<LecturaScreen> {
     }
   }
 
-  Future<void> refrescarTodo() async {
-    await listarTodo();
-
-    if (medidorCtrl.text.trim().isNotEmpty) {
-      await buscar();
-    }
-  }
-
-  // =========================
-  // WIDGETS AUXILIARES
-  // =========================
   Widget buildInfoRow(String titulo, dynamic valor) {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 4),
@@ -253,9 +412,6 @@ class _LecturaScreenState extends State<LecturaScreen> {
     );
   }
 
-  // =========================
-  // UI
-  // =========================
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -264,7 +420,13 @@ class _LecturaScreenState extends State<LecturaScreen> {
         centerTitle: true,
       ),
       body: RefreshIndicator(
-        onRefresh: refrescarTodo,
+        onRefresh: () async {
+          if (mostrarLista) {
+            await listarTodo();
+          } else if (medidorCtrl.text.trim().isNotEmpty) {
+            await buscar();
+          }
+        },
         child: ListView(
           padding: const EdgeInsets.all(16),
           children: [
@@ -291,12 +453,6 @@ class _LecturaScreenState extends State<LecturaScreen> {
                           onPressed: cargando ? null : buscar,
                           icon: const Icon(Icons.search),
                           label: const Text('Buscar'),
-                          style: ElevatedButton.styleFrom(
-                            padding: const EdgeInsets.symmetric(vertical: 14),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(14),
-                            ),
-                          ),
                         ),
                       ),
                       const SizedBox(width: 10),
@@ -304,13 +460,7 @@ class _LecturaScreenState extends State<LecturaScreen> {
                         child: OutlinedButton.icon(
                           onPressed: cargando ? null : listarTodo,
                           icon: const Icon(Icons.list),
-                          label: const Text('Listar'),
-                          style: OutlinedButton.styleFrom(
-                            padding: const EdgeInsets.symmetric(vertical: 14),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(14),
-                            ),
-                          ),
+                          label: const Text('Listar todo'),
                         ),
                       ),
                     ],
@@ -319,19 +469,8 @@ class _LecturaScreenState extends State<LecturaScreen> {
               ),
             ),
 
-            const SizedBox(height: 12),
-
-            Align(
-              alignment: Alignment.centerRight,
-              child: TextButton.icon(
-                onPressed: cargando ? null : refrescarTodo,
-                icon: const Icon(Icons.refresh),
-                label: const Text('Refrescar'),
-              ),
-            ),
-
             if (mensaje.isNotEmpty) ...[
-              const SizedBox(height: 8),
+              const SizedBox(height: 12),
               Container(
                 padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(
@@ -356,8 +495,8 @@ class _LecturaScreenState extends State<LecturaScreen> {
                     buildInfoRow('Lectura anterior', lectura!.lecturaAnterior),
                     buildInfoRow('Lectura actual', lectura!.lecturaActual),
                     buildInfoRow('Fecha lectura', lectura!.fechaLectura),
-                    buildInfoRow('Latitud', lectura!.latitud),
-                    buildInfoRow('Longitud', lectura!.longitud),
+                    buildInfoRow('Latitud GPS', lectura!.latitudGps),
+                    buildInfoRow('Longitud GPS', lectura!.longitudGps),
                     const SizedBox(height: 14),
                     SizedBox(
                       width: double.infinity,
@@ -368,7 +507,7 @@ class _LecturaScreenState extends State<LecturaScreen> {
                           });
                         },
                         icon: const Icon(Icons.edit),
-                        label: const Text('Actualizar / Completar datos'),
+                        label: const Text('Actualizar lectura'),
                       ),
                     ),
                   ],
@@ -376,7 +515,9 @@ class _LecturaScreenState extends State<LecturaScreen> {
               ),
             ],
 
-            if (mostrarDetalle && mostrarFormularioActualizar && lectura != null) ...[
+            if (mostrarDetalle &&
+                mostrarFormularioActualizar &&
+                lectura != null) ...[
               const SizedBox(height: 16),
               buildCard(
                 titulo: 'Actualizar lectura',
@@ -394,39 +535,42 @@ class _LecturaScreenState extends State<LecturaScreen> {
                       ),
                     ),
                     const SizedBox(height: 12),
-                    TextField(
-                      controller: fechaCtrl,
-                      decoration: InputDecoration(
-                        labelText: 'Fecha (YYYY-MM-DD HH:MM:SS)',
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(14),
+
+                    SizedBox(
+                      width: double.infinity,
+                      child: OutlinedButton.icon(
+                        onPressed: cargando ? null : tomarFoto,
+                        icon: const Icon(Icons.camera_alt),
+                        label: Text(
+                          fotoGuardadaPath == null
+                              ? 'Tomar foto'
+                              : 'Volver a tomar foto',
                         ),
                       ),
                     ),
-                    const SizedBox(height: 12),
-                    TextField(
-                      controller: latitudCtrl,
-                      keyboardType:
-                      const TextInputType.numberWithOptions(decimal: true),
-                      decoration: InputDecoration(
-                        labelText: 'Latitud',
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(14),
+
+                    if (fotoGuardadaPath != null) ...[
+                      const SizedBox(height: 12),
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(12),
+                        child: Image.file(
+                          File(fotoGuardadaPath!),
+                          height: 220,
+                          width: double.infinity,
+                          fit: BoxFit.cover,
                         ),
                       ),
-                    ),
-                    const SizedBox(height: 12),
-                    TextField(
-                      controller: longitudCtrl,
-                      keyboardType:
-                      const TextInputType.numberWithOptions(decimal: true),
-                      decoration: InputDecoration(
-                        labelText: 'Longitud',
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(14),
-                        ),
+                      const SizedBox(height: 8),
+                      Text(
+                        fotoGuardadaPath!,
+                        style: const TextStyle(fontSize: 12, color: Colors.black54),
                       ),
-                    ),
+                      const SizedBox(height: 8),
+                      Text('EXIF fecha: ${fotoFechaTomaExif ?? "-"}'),
+                      Text('EXIF latitud: ${fotoLatitudExif?.toString() ?? "-"}'),
+                      Text('EXIF longitud: ${fotoLongitudExif?.toString() ?? "-"}'),
+                    ],
+
                     const SizedBox(height: 14),
                     Row(
                       children: [
@@ -435,6 +579,11 @@ class _LecturaScreenState extends State<LecturaScreen> {
                             onPressed: () {
                               setState(() {
                                 mostrarFormularioActualizar = false;
+                                fotoTomada = null;
+                                fotoGuardadaPath = null;
+                                fotoFechaTomaExif = null;
+                                fotoLatitudExif = null;
+                                fotoLongitudExif = null;
                               });
                             },
                             child: const Text('Cancelar'),
@@ -455,47 +604,54 @@ class _LecturaScreenState extends State<LecturaScreen> {
               ),
             ],
 
-            const SizedBox(height: 18),
-            const Text(
-              'Listado completo',
-              style: TextStyle(
-                fontSize: 19,
-                fontWeight: FontWeight.bold,
+            if (mostrarLista) ...[
+              const SizedBox(height: 18),
+              const Text(
+                'Listado completo',
+                style: TextStyle(
+                  fontSize: 19,
+                  fontWeight: FontWeight.bold,
+                ),
               ),
-            ),
-            const SizedBox(height: 10),
+              const SizedBox(height: 10),
+            ],
 
             if (cargando)
               const Center(child: CircularProgressIndicator()),
 
-            ...lecturas.map((item) {
-              return Card(
-                elevation: 1.5,
-                margin: const EdgeInsets.only(bottom: 12),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(16),
-                ),
-                child: ListTile(
-                  contentPadding: const EdgeInsets.all(14),
-                  leading: const CircleAvatar(
-                    child: Icon(Icons.person_outline),
+            if (mostrarLista)
+              ...lecturas.map((item) {
+                return Card(
+                  elevation: 1.5,
+                  margin: const EdgeInsets.only(bottom: 12),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(16),
                   ),
-                  title: Text(
-                    item.nombre,
-                    style: const TextStyle(fontWeight: FontWeight.w600),
-                  ),
-                  subtitle: Padding(
-                    padding: const EdgeInsets.only(top: 8),
-                    child: Text(
-                      'Medidor: ${item.numeroMedidor}\n'
-                          'Lectura anterior: ${item.lecturaAnterior}\n'
-                          'Lectura actual: ${item.lecturaActual}\n'
-                          'Fecha: ${item.fechaLectura}',
+                  child: ListTile(
+                    onTap: () async {
+                      medidorCtrl.text = item.numeroMedidor;
+                      await buscar();
+                    },
+                    contentPadding: const EdgeInsets.all(14),
+                    leading: const CircleAvatar(
+                      child: Icon(Icons.person_outline),
+                    ),
+                    title: Text(
+                      item.nombre,
+                      style: const TextStyle(fontWeight: FontWeight.w600),
+                    ),
+                    subtitle: Padding(
+                      padding: const EdgeInsets.only(top: 8),
+                      child: Text(
+                        'Medidor: ${item.numeroMedidor}\n'
+                            'Lectura anterior: ${item.lecturaAnterior}\n'
+                            'Lectura actual: ${item.lecturaActual}\n'
+                            'Fecha: ${item.fechaLectura}',
+                      ),
                     ),
                   ),
-                ),
-              );
-            }),
+                );
+              }),
           ],
         ),
       ),
