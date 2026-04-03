@@ -67,14 +67,15 @@ class _LecturaScreenState extends State<LecturaScreen> {
 
       if (exif.tags.isEmpty) {
         print('No EXIF information found');
+        print('=================================');
         return;
       }
 
-      print('GPSLatitude: ${exif.tags['GPSLatitude']}');
-      print('GPSLatitudeRef: ${exif.tags['GPSLatitudeRef']}');
-      print('GPSLongitude: ${exif.tags['GPSLongitude']}');
-      print('GPSLongitudeRef: ${exif.tags['GPSLongitudeRef']}');
-      print('DateTimeOriginal: ${exif.tags['DateTimeOriginal']}');
+      print('GPSLatitude: ${exif.tags['GPS GPSLatitude']}');
+      print('GPSLatitudeRef: ${exif.tags['GPS GPSLatitudeRef']}');
+      print('GPSLongitude: ${exif.tags['GPS GPSLongitude']}');
+      print('GPSLongitudeRef: ${exif.tags['GPS GPSLongitudeRef']}');
+      print('DateTimeOriginal: ${exif.tags['EXIF DateTimeOriginal']}');
       print('Todos los tags: ${exif.tags}');
       print('===============================');
     } catch (e) {
@@ -135,61 +136,97 @@ class _LecturaScreenState extends State<LecturaScreen> {
   }
 
   Future<void> tomarFoto() async {
-    print('Entro a tomar foto');
+    print('================ INICIO PRUEBA FOTO ================');
+
     try {
       final XFile? foto = await _picker.pickImage(
-        source: ImageSource.gallery,
+        source: ImageSource.camera,
       );
 
-
-      if (foto == null) return;
+      if (foto == null) {
+        print('No se tomó foto');
+        return;
+      }
 
       print('RUTA ORIGINAL PICKER: ${foto.path}');
 
-      final exifOriginal = await Exif.fromPath(foto.path);
-      final coordsOriginal = await exifOriginal.getLatLong();
-      final attrsOriginal = await exifOriginal.getAttributes();
+      final archivoOriginal = File(foto.path);
+      print('EXISTE ORIGINAL: ${await archivoOriginal.exists()}');
+      print('TAMANIO ORIGINAL: ${await archivoOriginal.length()} bytes');
 
-      print('ORIGINAL coords: $coordsOriginal');
-      print('ORIGINAL GPSLatitude: ${attrsOriginal?["GPSLatitude"]}');
-      print('ORIGINAL GPSLatitudeRef: ${attrsOriginal?["GPSLatitudeRef"]}');
-      print('ORIGINAL GPSLongitude: ${attrsOriginal?["GPSLongitude"]}');
-      print('ORIGINAL GPSLongitudeRef: ${attrsOriginal?["GPSLongitudeRef"]}');
+      // ---------- LECTURA ORIGINAL CON native_exif ----------
+      try {
+        final exifOriginal = await Exif.fromPath(foto.path);
+        final originalDate = await exifOriginal.getOriginalDate();
+        final coordsOriginal = await exifOriginal.getLatLong();
+        final attrsOriginal = await exifOriginal.getAttributes();
 
-      await exifOriginal.close();
+        print('----- ORIGINAL / native_exif -----');
+        print('ORIGINAL fecha: $originalDate');
+        print('ORIGINAL coords: $coordsOriginal');
+        print('ORIGINAL GPSLatitude: ${attrsOriginal?["GPSLatitude"]}');
+        print('ORIGINAL GPSLatitudeRef: ${attrsOriginal?["GPSLatitudeRef"]}');
+        print('ORIGINAL GPSLongitude: ${attrsOriginal?["GPSLongitude"]}');
+        print('ORIGINAL GPSLongitudeRef: ${attrsOriginal?["GPSLongitudeRef"]}');
+        print('ORIGINAL TODOS ATTRS: $attrsOriginal');
 
+        await exifOriginal.close();
+      } catch (e) {
+        print('ERROR ORIGINAL native_exif: $e');
+      }
+
+      // ---------- LECTURA ORIGINAL CON exif_reader ----------
+      try {
+        await probarExifReader(foto.path);
+      } catch (e) {
+        print('ERROR ORIGINAL exif_reader: $e');
+      }
+
+      // ---------- COPIA ----------
       final rutaFinal = await _guardarFotoEnApp(foto);
-      //await probarExifReader(rutaFinal);
+      print('RUTA COPIA FINAL: $rutaFinal');
+
+      final archivoCopia = File(rutaFinal);
+      print('EXISTE COPIA: ${await archivoCopia.exists()}');
+      print('TAMANIO COPIA: ${await archivoCopia.length()} bytes');
 
       String? fechaExif;
       double? latExif;
       double? longExif;
 
+      // ---------- LECTURA COPIA CON native_exif ----------
       try {
-        final exif = await Exif.fromPath(rutaFinal);
+        final exifCopia = await Exif.fromPath(rutaFinal);
+        final copyDate = await exifCopia.getOriginalDate();
+        final coordsCopia = await exifCopia.getLatLong();
+        final attrsCopia = await exifCopia.getAttributes();
 
-        final originalDate = await exif.getOriginalDate();
-        final coordinates = await exif.getLatLong();
-        final attrs = await exif.getAttributes();
+        print('----- COPIA / native_exif -----');
+        print('COPIA fecha: $copyDate');
+        print('COPIA coords: $coordsCopia');
+        print('COPIA GPSLatitude: ${attrsCopia?["GPSLatitude"]}');
+        print('COPIA GPSLatitudeRef: ${attrsCopia?["GPSLatitudeRef"]}');
+        print('COPIA GPSLongitude: ${attrsCopia?["GPSLongitude"]}');
+        print('COPIA GPSLongitudeRef: ${attrsCopia?["GPSLongitudeRef"]}');
+        print('COPIA TODOS ATTRS: $attrsCopia');
 
-        fechaExif = originalDate?.toString();
-        print('RUTA FOTO: $rutaFinal');
-        print('EXIF fecha: $originalDate');
-        print('EXIF coordinates: $coordinates');
-        print('EXIF GPSLatitude: ${attrs?["GPSLatitude"]}');
-        print('EXIF GPSLatitudeRef: ${attrs?["GPSLatitudeRef"]}');
-        print('EXIF GPSLongitude: ${attrs?["GPSLongitude"]}');
-        print('EXIF GPSLongitudeRef: ${attrs?["GPSLongitudeRef"]}');
+        fechaExif = copyDate?.toString();
 
-        if (coordinates != null) {
-          print(coordinates);
-          latExif = coordinates.latitude;
-          longExif = coordinates.longitude;
+        if (coordsCopia != null) {
+          latExif = coordsCopia.latitude;
+          longExif = coordsCopia.longitude;
         }
 
-        await exif.close();
-      } catch (_) {
-        // Si no hay EXIF o falla la lectura, seguimos sin romper el flujo
+        await exifCopia.close();
+      } catch (e) {
+        print('ERROR COPIA native_exif: $e');
+      }
+
+      // ---------- LECTURA COPIA CON exif_reader ----------
+      try {
+        await probarExifReader(rutaFinal);
+      } catch (e) {
+        print('ERROR COPIA exif_reader: $e');
       }
 
       setState(() {
@@ -198,9 +235,12 @@ class _LecturaScreenState extends State<LecturaScreen> {
         fotoFechaTomaExif = fechaExif;
         fotoLatitudExif = latExif;
         fotoLongitudExif = longExif;
-        mensaje = 'Foto tomada correctamente';
+        mensaje = 'Prueba realizada. Revisa consola.';
       });
+
+      print('================ FIN PRUEBA FOTO ================');
     } catch (e) {
+      print('ERROR GENERAL tomarFoto: $e');
       setState(() {
         mensaje = 'Error al tomar la foto: $e';
       });
