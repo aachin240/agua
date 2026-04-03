@@ -1,10 +1,11 @@
 import 'dart:io';
-import 'package:exif_reader/exif_reader.dart';
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
-import 'package:image_picker/image_picker.dart';
+import 'package:camera/camera.dart';
 import 'package:native_exif/native_exif.dart';
 import 'package:path_provider/path_provider.dart';
+import 'camera_capture_screen.dart';
+import '../main.dart';
 import '../models/lectura.dart';
 import '../services/lectura_service.dart';
 
@@ -18,8 +19,6 @@ class LecturaScreen extends StatefulWidget {
 class _LecturaScreenState extends State<LecturaScreen> {
   final LecturaService service = LecturaService();
 
-  final ImagePicker _picker = ImagePicker();
-  XFile? fotoTomada;
   String? fotoGuardadaPath;
   String? fotoFechaTomaExif;
   double? fotoLatitudExif;
@@ -50,45 +49,14 @@ class _LecturaScreenState extends State<LecturaScreen> {
     super.dispose();
   }
 
-  Future<void> probarExifReader(String rutaFoto) async {
-    try {
-      final bytes = await File(rutaFoto).readAsBytes();
-      final exif = await readExifFromBytes(bytes);
-
-      print('========== EXIF_READER ==========');
-      print('RUTA FOTO: $rutaFoto');
-
-      if (exif.warnings.isNotEmpty) {
-        print('Warnings:');
-        for (final warning in exif.warnings) {
-          print('  $warning');
-        }
-      }
-
-      if (exif.tags.isEmpty) {
-        print('No EXIF information found');
-        return;
-      }
-
-      print('GPSLatitude: ${exif.tags['GPSLatitude']}');
-      print('GPSLatitudeRef: ${exif.tags['GPSLatitudeRef']}');
-      print('GPSLongitude: ${exif.tags['GPSLongitude']}');
-      print('GPSLongitudeRef: ${exif.tags['GPSLongitudeRef']}');
-      print('DateTimeOriginal: ${exif.tags['DateTimeOriginal']}');
-      print('Todos los tags: ${exif.tags}');
-      print('===============================');
-    } catch (e) {
-      print('ERROR EXIF_READER: $e');
-    }
-  }
 
   void limpiarFotoTemporal() {
-    fotoTomada = null;
     fotoGuardadaPath = null;
     fotoFechaTomaExif = null;
     fotoLatitudExif = null;
     fotoLongitudExif = null;
   }
+
   Future<Position> _obtenerUbicacionActual() async {
     bool serviceEnabled;
     LocationPermission permission;
@@ -116,7 +84,7 @@ class _LecturaScreenState extends State<LecturaScreen> {
     );
   }
 
-  Future<String> _guardarFotoEnApp(XFile foto) async {
+  Future<String> _guardarFotoEnApp(String rutaOriginal) async {
     final dir = await getApplicationDocumentsDirectory();
     final carpeta = Directory('${dir.path}/fotos_medidor');
 
@@ -124,42 +92,32 @@ class _LecturaScreenState extends State<LecturaScreen> {
       await carpeta.create(recursive: true);
     }
 
-    final nombre =
-        'medidor_${DateTime.now().millisecondsSinceEpoch}.jpg';
+    final nombre = 'medidor_${DateTime.now().millisecondsSinceEpoch}.jpg';
     final destino = '${carpeta.path}/$nombre';
 
-    final archivoOriginal = File(foto.path);
+    final archivoOriginal = File(rutaOriginal);
     final archivoNuevo = await archivoOriginal.copy(destino);
 
     return archivoNuevo.path;
   }
 
   Future<void> tomarFoto() async {
-    print('Entro a tomar foto');
     try {
-      final XFile? foto = await _picker.pickImage(
-        source: ImageSource.gallery,
+      final CameraDescription camara = appCameras.firstWhere(
+            (c) => c.lensDirection == CameraLensDirection.back,
+        orElse: () => appCameras.first,
       );
 
+      final String? rutaTemporal = await Navigator.push<String>(
+        context,
+        MaterialPageRoute(
+          builder: (_) => CameraCaptureScreen(camera: camara),
+        ),
+      );
 
-      if (foto == null) return;
+      if (rutaTemporal == null) return;
 
-      print('RUTA ORIGINAL PICKER: ${foto.path}');
-
-      final exifOriginal = await Exif.fromPath(foto.path);
-      final coordsOriginal = await exifOriginal.getLatLong();
-      final attrsOriginal = await exifOriginal.getAttributes();
-
-      print('ORIGINAL coords: $coordsOriginal');
-      print('ORIGINAL GPSLatitude: ${attrsOriginal?["GPSLatitude"]}');
-      print('ORIGINAL GPSLatitudeRef: ${attrsOriginal?["GPSLatitudeRef"]}');
-      print('ORIGINAL GPSLongitude: ${attrsOriginal?["GPSLongitude"]}');
-      print('ORIGINAL GPSLongitudeRef: ${attrsOriginal?["GPSLongitudeRef"]}');
-
-      await exifOriginal.close();
-
-      final rutaFinal = await _guardarFotoEnApp(foto);
-      //await probarExifReader(rutaFinal);
+      final rutaFinal = await _guardarFotoEnApp(rutaTemporal);
 
       String? fechaExif;
       double? latExif;
@@ -172,7 +130,6 @@ class _LecturaScreenState extends State<LecturaScreen> {
         final coordinates = await exif.getLatLong();
         final attrs = await exif.getAttributes();
 
-        fechaExif = originalDate?.toString();
         print('RUTA FOTO: $rutaFinal');
         print('EXIF fecha: $originalDate');
         print('EXIF coordinates: $coordinates');
@@ -181,19 +138,19 @@ class _LecturaScreenState extends State<LecturaScreen> {
         print('EXIF GPSLongitude: ${attrs?["GPSLongitude"]}');
         print('EXIF GPSLongitudeRef: ${attrs?["GPSLongitudeRef"]}');
 
+        fechaExif = originalDate?.toString();
+
         if (coordinates != null) {
-          print(coordinates);
           latExif = coordinates.latitude;
           longExif = coordinates.longitude;
         }
 
         await exif.close();
-      } catch (_) {
-        // Si no hay EXIF o falla la lectura, seguimos sin romper el flujo
+      } catch (e) {
+        print('ERROR EXIF: $e');
       }
 
       setState(() {
-        fotoTomada = foto;
         fotoGuardadaPath = rutaFinal;
         fotoFechaTomaExif = fechaExif;
         fotoLatitudExif = latExif;
@@ -579,11 +536,7 @@ class _LecturaScreenState extends State<LecturaScreen> {
                             onPressed: () {
                               setState(() {
                                 mostrarFormularioActualizar = false;
-                                fotoTomada = null;
-                                fotoGuardadaPath = null;
-                                fotoFechaTomaExif = null;
-                                fotoLatitudExif = null;
-                                fotoLongitudExif = null;
+                                limpiarFotoTemporal();
                               });
                             },
                             child: const Text('Cancelar'),

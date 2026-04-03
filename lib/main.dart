@@ -1,7 +1,12 @@
+import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
 import 'screens/lectura_screen.dart';
 
-void main() {
+late List<CameraDescription> appCameras;
+
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  appCameras = await availableCameras();
   runApp(const MyApp());
 }
 
