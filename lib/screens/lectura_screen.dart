@@ -67,7 +67,7 @@ class _LecturaScreenState extends State<LecturaScreen> {
 
       if (exif.tags.isEmpty) {
         print('No EXIF information found');
-        print('=================================');
+        print('===============================');
         return;
       }
 
