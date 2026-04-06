@@ -50,6 +50,33 @@ class _LecturaScreenState extends State<LecturaScreen> {
     super.dispose();
   }
 
+  Future<void> escribirGpsEnExif({
+    required String rutaImagen,
+    required double latitud,
+    required double longitud,
+  }) async {
+    final exif = await Exif.fromPath(rutaImagen);
+
+    await exif.writeAttributes({
+      'GPSLatitude': latitud.abs().toString(),
+      'GPSLatitudeRef': latitud >= 0 ? 'N' : 'S',
+      'GPSLongitude': longitud.abs().toString(),
+      'GPSLongitudeRef': longitud >= 0 ? 'E' : 'W',
+    });
+
+    final attrs = await exif.getAttributes();
+    final coords = await exif.getLatLong();
+
+    print('===== GPS ESCRITO EN EXIF =====');
+    print('GPSLatitude: ${attrs?["GPSLatitude"]}');
+    print('GPSLatitudeRef: ${attrs?["GPSLatitudeRef"]}');
+    print('GPSLongitude: ${attrs?["GPSLongitude"]}');
+    print('GPSLongitudeRef: ${attrs?["GPSLongitudeRef"]}');
+    print('Coords leidas luego de escribir: $coords');
+
+    await exif.close();
+  }
+
   Future<void> probarExifReader(String rutaFoto) async {
     try {
       final bytes = await File(rutaFoto).readAsBytes();
@@ -117,7 +144,7 @@ class _LecturaScreenState extends State<LecturaScreen> {
     );
   }
 
-  Future<String> _guardarFotoEnApp(XFile foto) async {
+  Future<String> _guardarFotoEnApp(String rutaOriginal) async {
     final dir = await getApplicationDocumentsDirectory();
     final carpeta = Directory('${dir.path}/fotos_medidor');
 
@@ -125,11 +152,10 @@ class _LecturaScreenState extends State<LecturaScreen> {
       await carpeta.create(recursive: true);
     }
 
-    final nombre =
-        'medidor_${DateTime.now().millisecondsSinceEpoch}.jpg';
+    final nombre = 'medidor_${DateTime.now().millisecondsSinceEpoch}.jpg';
     final destino = '${carpeta.path}/$nombre';
 
-    final archivoOriginal = File(foto.path);
+    final archivoOriginal = File(rutaOriginal);
     final archivoNuevo = await archivoOriginal.copy(destino);
 
     return archivoNuevo.path;
@@ -154,6 +180,10 @@ class _LecturaScreenState extends State<LecturaScreen> {
       print('EXISTE ORIGINAL: ${await archivoOriginal.exists()}');
       print('TAMANIO ORIGINAL: ${await archivoOriginal.length()} bytes');
 
+      String? fechaExif;
+      double? latExif;
+      double? longExif;
+
       // ---------- LECTURA ORIGINAL CON native_exif ----------
       try {
         final exifOriginal = await Exif.fromPath(foto.path);
@@ -170,6 +200,13 @@ class _LecturaScreenState extends State<LecturaScreen> {
         print('ORIGINAL GPSLongitudeRef: ${attrsOriginal?["GPSLongitudeRef"]}');
         print('ORIGINAL TODOS ATTRS: $attrsOriginal');
 
+        fechaExif = originalDate?.toString();
+
+        if (coordsOriginal != null) {
+          latExif = coordsOriginal.latitude;
+          longExif = coordsOriginal.longitude;
+        }
+
         await exifOriginal.close();
       } catch (e) {
         print('ERROR ORIGINAL native_exif: $e');
@@ -182,17 +219,60 @@ class _LecturaScreenState extends State<LecturaScreen> {
         print('ERROR ORIGINAL exif_reader: $e');
       }
 
+      // ---------- SI LONGITUD VIENE EN 0, ESCRIBIR GPS EN EXIF ----------
+      if (latExif == null || longExif == null || longExif == 0.0) {
+        print('Longitud EXIF invalida. Se escribira GPS actual en la imagen.');
+
+        final posicion = await _obtenerUbicacionActual();
+
+        await escribirGpsEnExif(
+          rutaImagen: foto.path,
+          latitud: posicion.latitude,
+          longitud: posicion.longitude,
+        );
+
+        // Releer después de escribir
+        try {
+          final exifReleido = await Exif.fromPath(foto.path);
+          final originalDate2 = await exifReleido.getOriginalDate();
+          final coords2 = await exifReleido.getLatLong();
+          final attrs2 = await exifReleido.getAttributes();
+
+          print('----- ORIGINAL RELEIDO / native_exif -----');
+          print('ORIGINAL RELEIDO fecha: $originalDate2');
+          print('ORIGINAL RELEIDO coords: $coords2');
+          print('ORIGINAL RELEIDO GPSLatitude: ${attrs2?["GPSLatitude"]}');
+          print('ORIGINAL RELEIDO GPSLatitudeRef: ${attrs2?["GPSLatitudeRef"]}');
+          print('ORIGINAL RELEIDO GPSLongitude: ${attrs2?["GPSLongitude"]}');
+          print('ORIGINAL RELEIDO GPSLongitudeRef: ${attrs2?["GPSLongitudeRef"]}');
+          print('ORIGINAL RELEIDO TODOS ATTRS: $attrs2');
+
+          fechaExif = originalDate2?.toString() ?? fechaExif;
+
+          if (coords2 != null) {
+            latExif = coords2.latitude;
+            longExif = coords2.longitude;
+          }
+
+          await exifReleido.close();
+        } catch (e) {
+          print('ERROR RELEYENDO ORIGINAL DESPUES DE ESCRIBIR GPS: $e');
+        }
+
+        try {
+          await probarExifReader(foto.path);
+        } catch (e) {
+          print('ERROR EXIF_READER ORIGINAL RELEIDO: $e');
+        }
+      }
+
       // ---------- COPIA ----------
-      final rutaFinal = await _guardarFotoEnApp(foto);
+      final rutaFinal = await _guardarFotoEnApp(foto.path);
       print('RUTA COPIA FINAL: $rutaFinal');
 
       final archivoCopia = File(rutaFinal);
       print('EXISTE COPIA: ${await archivoCopia.exists()}');
       print('TAMANIO COPIA: ${await archivoCopia.length()} bytes');
-
-      String? fechaExif;
-      double? latExif;
-      double? longExif;
 
       // ---------- LECTURA COPIA CON native_exif ----------
       try {
@@ -210,7 +290,7 @@ class _LecturaScreenState extends State<LecturaScreen> {
         print('COPIA GPSLongitudeRef: ${attrsCopia?["GPSLongitudeRef"]}');
         print('COPIA TODOS ATTRS: $attrsCopia');
 
-        fechaExif = copyDate?.toString();
+        fechaExif = copyDate?.toString() ?? fechaExif;
 
         if (coordsCopia != null) {
           latExif = coordsCopia.latitude;
@@ -230,12 +310,11 @@ class _LecturaScreenState extends State<LecturaScreen> {
       }
 
       setState(() {
-        fotoTomada = foto;
         fotoGuardadaPath = rutaFinal;
         fotoFechaTomaExif = fechaExif;
         fotoLatitudExif = latExif;
         fotoLongitudExif = longExif;
-        mensaje = 'Prueba realizada. Revisa consola.';
+        mensaje = 'Foto tomada correctamente con GPS en metadatos';
       });
 
       print('================ FIN PRUEBA FOTO ================');
