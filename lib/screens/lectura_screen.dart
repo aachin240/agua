@@ -1,12 +1,12 @@
 import 'dart:io';
-import 'package:exif_reader/exif_reader.dart';
 import 'package:flutter/material.dart';
-import 'package:geolocator/geolocator.dart';
-import 'package:image_picker/image_picker.dart';
-import 'package:native_exif/native_exif.dart';
-import 'package:path_provider/path_provider.dart';
+
 import '../models/lectura.dart';
+import '../controllers/lectura_controlador.dart';
 import '../services/lectura_service.dart';
+import '../services/local/lectura_local_service.dart';
+import '../services/device/servicio_ubicacion.dart';
+import '../services/device/servicio_foto.dart';
 
 class LecturaScreen extends StatefulWidget {
   const LecturaScreen({super.key});
@@ -16,10 +16,13 @@ class LecturaScreen extends StatefulWidget {
 }
 
 class _LecturaScreenState extends State<LecturaScreen> {
-  final LecturaService service = LecturaService();
+  final LecturaService servicioRemoto = LecturaService();
+  final LecturaLocalService servicioLocal = LecturaLocalService();
+  final ServicioUbicacion servicioUbicacion = ServicioUbicacion();
+  final ServicioFoto servicioFoto = ServicioFoto();
 
-  final ImagePicker _picker = ImagePicker();
-  XFile? fotoTomada;
+  late final LecturaControlador controlador;
+
   String? fotoGuardadaPath;
   String? fotoFechaTomaExif;
   double? fotoLatitudExif;
@@ -40,7 +43,14 @@ class _LecturaScreenState extends State<LecturaScreen> {
   @override
   void initState() {
     super.initState();
-    listarTodo();
+
+    controlador = LecturaControlador(
+      servicioRemoto: servicioRemoto,
+      servicioLocal: servicioLocal,
+      servicioUbicacion: servicioUbicacion,
+    );
+
+    cargarDatosIniciales();
   }
 
   @override
@@ -50,280 +60,30 @@ class _LecturaScreenState extends State<LecturaScreen> {
     super.dispose();
   }
 
-  Future<void> escribirGpsEnExif({
-    required String rutaImagen,
-    required double latitud,
-    required double longitud,
-  }) async {
-    final exif = await Exif.fromPath(rutaImagen);
-
-    await exif.writeAttributes({
-      'GPSLatitude': latitud.abs().toString(),
-      'GPSLatitudeRef': latitud >= 0 ? 'N' : 'S',
-      'GPSLongitude': longitud.abs().toString(),
-      'GPSLongitudeRef': longitud >= 0 ? 'E' : 'W',
-    });
-
-    final attrs = await exif.getAttributes();
-    final coords = await exif.getLatLong();
-
-    print('===== GPS ESCRITO EN EXIF =====');
-    print('GPSLatitude: ${attrs?["GPSLatitude"]}');
-    print('GPSLatitudeRef: ${attrs?["GPSLatitudeRef"]}');
-    print('GPSLongitude: ${attrs?["GPSLongitude"]}');
-    print('GPSLongitudeRef: ${attrs?["GPSLongitudeRef"]}');
-    print('Coords leidas luego de escribir: $coords');
-
-    await exif.close();
-  }
-
-  Future<void> probarExifReader(String rutaFoto) async {
-    try {
-      final bytes = await File(rutaFoto).readAsBytes();
-      final exif = await readExifFromBytes(bytes);
-
-      print('========== EXIF_READER ==========');
-      print('RUTA FOTO: $rutaFoto');
-
-      if (exif.warnings.isNotEmpty) {
-        print('Warnings:');
-        for (final warning in exif.warnings) {
-          print('  $warning');
-        }
-      }
-
-      if (exif.tags.isEmpty) {
-        print('No EXIF information found');
-        print('=================================');
-        return;
-      }
-
-      print('GPSLatitude: ${exif.tags['GPS GPSLatitude']}');
-      print('GPSLatitudeRef: ${exif.tags['GPS GPSLatitudeRef']}');
-      print('GPSLongitude: ${exif.tags['GPS GPSLongitude']}');
-      print('GPSLongitudeRef: ${exif.tags['GPS GPSLongitudeRef']}');
-      print('DateTimeOriginal: ${exif.tags['EXIF DateTimeOriginal']}');
-      print('Todos los tags: ${exif.tags}');
-      print('===============================');
-    } catch (e) {
-      print('ERROR EXIF_READER: $e');
-    }
-  }
-
   void limpiarFotoTemporal() {
-    fotoTomada = null;
     fotoGuardadaPath = null;
     fotoFechaTomaExif = null;
     fotoLatitudExif = null;
     fotoLongitudExif = null;
   }
-  Future<Position> _obtenerUbicacionActual() async {
-    bool serviceEnabled;
-    LocationPermission permission;
 
-    serviceEnabled = await Geolocator.isLocationServiceEnabled();
-    if (!serviceEnabled) {
-      throw Exception('El GPS del dispositivo está desactivado');
-    }
+  Future<void> cargarDatosIniciales() async {
+    setState(() {
+      cargando = true;
+      mensaje = '';
+      mostrarLista = true;
+      mostrarDetalle = false;
+      mostrarFormularioActualizar = false;
+      lectura = null;
+    });
 
-    permission = await Geolocator.checkPermission();
+    final resultado = await controlador.cargarDatosIniciales();
 
-    if (permission == LocationPermission.denied) {
-      permission = await Geolocator.requestPermission();
-      if (permission == LocationPermission.denied) {
-        throw Exception('Permiso de ubicación denegado');
-      }
-    }
-
-    if (permission == LocationPermission.deniedForever) {
-      throw Exception('Permiso de ubicación denegado permanentemente');
-    }
-
-    return await Geolocator.getCurrentPosition(
-      desiredAccuracy: LocationAccuracy.high,
-    );
-  }
-
-  Future<String> _guardarFotoEnApp(String rutaOriginal) async {
-    final dir = await getApplicationDocumentsDirectory();
-    final carpeta = Directory('${dir.path}/fotos_medidor');
-
-    if (!await carpeta.exists()) {
-      await carpeta.create(recursive: true);
-    }
-
-    final nombre = 'medidor_${DateTime.now().millisecondsSinceEpoch}.jpg';
-    final destino = '${carpeta.path}/$nombre';
-
-    final archivoOriginal = File(rutaOriginal);
-    final archivoNuevo = await archivoOriginal.copy(destino);
-
-    return archivoNuevo.path;
-  }
-
-  Future<void> tomarFoto() async {
-    print('================ INICIO PRUEBA FOTO ================');
-
-    try {
-      final XFile? foto = await _picker.pickImage(
-        source: ImageSource.camera,
-      );
-
-      if (foto == null) {
-        print('No se tomó foto');
-        return;
-      }
-
-      print('RUTA ORIGINAL PICKER: ${foto.path}');
-
-      final archivoOriginal = File(foto.path);
-      print('EXISTE ORIGINAL: ${await archivoOriginal.exists()}');
-      print('TAMANIO ORIGINAL: ${await archivoOriginal.length()} bytes');
-
-      String? fechaExif;
-      double? latExif;
-      double? longExif;
-
-      // ---------- LECTURA ORIGINAL CON native_exif ----------
-      try {
-        final exifOriginal = await Exif.fromPath(foto.path);
-        final originalDate = await exifOriginal.getOriginalDate();
-        final coordsOriginal = await exifOriginal.getLatLong();
-        final attrsOriginal = await exifOriginal.getAttributes();
-
-        print('----- ORIGINAL / native_exif -----');
-        print('ORIGINAL fecha: $originalDate');
-        print('ORIGINAL coords: $coordsOriginal');
-        print('ORIGINAL GPSLatitude: ${attrsOriginal?["GPSLatitude"]}');
-        print('ORIGINAL GPSLatitudeRef: ${attrsOriginal?["GPSLatitudeRef"]}');
-        print('ORIGINAL GPSLongitude: ${attrsOriginal?["GPSLongitude"]}');
-        print('ORIGINAL GPSLongitudeRef: ${attrsOriginal?["GPSLongitudeRef"]}');
-        print('ORIGINAL TODOS ATTRS: $attrsOriginal');
-
-        fechaExif = originalDate?.toString();
-
-        if (coordsOriginal != null) {
-          latExif = coordsOriginal.latitude;
-          longExif = coordsOriginal.longitude;
-        }
-
-        await exifOriginal.close();
-      } catch (e) {
-        print('ERROR ORIGINAL native_exif: $e');
-      }
-
-      // ---------- LECTURA ORIGINAL CON exif_reader ----------
-      try {
-        await probarExifReader(foto.path);
-      } catch (e) {
-        print('ERROR ORIGINAL exif_reader: $e');
-      }
-
-      // ---------- SI LONGITUD VIENE EN 0, ESCRIBIR GPS EN EXIF ----------
-      if (latExif == null || longExif == null || longExif == 0.0) {
-        print('Longitud EXIF invalida. Se escribira GPS actual en la imagen.');
-
-        final posicion = await _obtenerUbicacionActual();
-
-        await escribirGpsEnExif(
-          rutaImagen: foto.path,
-          latitud: posicion.latitude,
-          longitud: posicion.longitude,
-        );
-
-        // Releer después de escribir
-        try {
-          final exifReleido = await Exif.fromPath(foto.path);
-          final originalDate2 = await exifReleido.getOriginalDate();
-          final coords2 = await exifReleido.getLatLong();
-          final attrs2 = await exifReleido.getAttributes();
-
-          print('----- ORIGINAL RELEIDO / native_exif -----');
-          print('ORIGINAL RELEIDO fecha: $originalDate2');
-          print('ORIGINAL RELEIDO coords: $coords2');
-          print('ORIGINAL RELEIDO GPSLatitude: ${attrs2?["GPSLatitude"]}');
-          print('ORIGINAL RELEIDO GPSLatitudeRef: ${attrs2?["GPSLatitudeRef"]}');
-          print('ORIGINAL RELEIDO GPSLongitude: ${attrs2?["GPSLongitude"]}');
-          print('ORIGINAL RELEIDO GPSLongitudeRef: ${attrs2?["GPSLongitudeRef"]}');
-          print('ORIGINAL RELEIDO TODOS ATTRS: $attrs2');
-
-          fechaExif = originalDate2?.toString() ?? fechaExif;
-
-          if (coords2 != null) {
-            latExif = coords2.latitude;
-            longExif = coords2.longitude;
-          }
-
-          await exifReleido.close();
-        } catch (e) {
-          print('ERROR RELEYENDO ORIGINAL DESPUES DE ESCRIBIR GPS: $e');
-        }
-
-        try {
-          await probarExifReader(foto.path);
-        } catch (e) {
-          print('ERROR EXIF_READER ORIGINAL RELEIDO: $e');
-        }
-      }
-
-      // ---------- COPIA ----------
-      final rutaFinal = await _guardarFotoEnApp(foto.path);
-      print('RUTA COPIA FINAL: $rutaFinal');
-
-      final archivoCopia = File(rutaFinal);
-      print('EXISTE COPIA: ${await archivoCopia.exists()}');
-      print('TAMANIO COPIA: ${await archivoCopia.length()} bytes');
-
-      // ---------- LECTURA COPIA CON native_exif ----------
-      try {
-        final exifCopia = await Exif.fromPath(rutaFinal);
-        final copyDate = await exifCopia.getOriginalDate();
-        final coordsCopia = await exifCopia.getLatLong();
-        final attrsCopia = await exifCopia.getAttributes();
-
-        print('----- COPIA / native_exif -----');
-        print('COPIA fecha: $copyDate');
-        print('COPIA coords: $coordsCopia');
-        print('COPIA GPSLatitude: ${attrsCopia?["GPSLatitude"]}');
-        print('COPIA GPSLatitudeRef: ${attrsCopia?["GPSLatitudeRef"]}');
-        print('COPIA GPSLongitude: ${attrsCopia?["GPSLongitude"]}');
-        print('COPIA GPSLongitudeRef: ${attrsCopia?["GPSLongitudeRef"]}');
-        print('COPIA TODOS ATTRS: $attrsCopia');
-
-        fechaExif = copyDate?.toString() ?? fechaExif;
-
-        if (coordsCopia != null) {
-          latExif = coordsCopia.latitude;
-          longExif = coordsCopia.longitude;
-        }
-
-        await exifCopia.close();
-      } catch (e) {
-        print('ERROR COPIA native_exif: $e');
-      }
-
-      // ---------- LECTURA COPIA CON exif_reader ----------
-      try {
-        await probarExifReader(rutaFinal);
-      } catch (e) {
-        print('ERROR COPIA exif_reader: $e');
-      }
-
-      setState(() {
-        fotoGuardadaPath = rutaFinal;
-        fotoFechaTomaExif = fechaExif;
-        fotoLatitudExif = latExif;
-        fotoLongitudExif = longExif;
-        mensaje = 'Foto tomada correctamente con GPS en metadatos';
-      });
-
-      print('================ FIN PRUEBA FOTO ================');
-    } catch (e) {
-      print('ERROR GENERAL tomarFoto: $e');
-      setState(() {
-        mensaje = 'Error al tomar la foto: $e';
-      });
-    }
+    setState(() {
+      cargando = false;
+      mensaje = resultado.mensaje;
+      lecturas = resultado.lecturas ?? [];
+    });
   }
 
   Future<void> listarTodo() async {
@@ -334,136 +94,105 @@ class _LecturaScreenState extends State<LecturaScreen> {
       mostrarFormularioActualizar = false;
       lectura = null;
       mensaje = '';
-
       limpiarFotoTemporal();
     });
 
+    final resultado = await controlador.listarDesdeBaseLocal();
+
+    setState(() {
+      cargando = false;
+      mensaje = resultado.mensaje;
+      lecturas = resultado.lecturas ?? [];
+    });
+  }
+
+  Future<void> tomarFoto() async {
+    setState(() {
+      mensaje = '';
+    });
+
     try {
-      final lista = await service.listarTodo();
+      final posicion = await servicioUbicacion.obtenerUbicacionActual();
+
+      final resultado = await servicioFoto.tomarYPrepararFoto(
+        latitudActual: posicion.latitude,
+        longitudActual: posicion.longitude,
+      );
+
+      if (resultado == null) {
+        return;
+      }
 
       setState(() {
-        lecturas = lista;
+        fotoGuardadaPath = resultado.rutaFotoGuardada;
+        fotoFechaTomaExif = resultado.fechaToma;
+        fotoLatitudExif = resultado.latitud;
+        fotoLongitudExif = resultado.longitud;
+        mensaje = 'Foto tomada correctamente';
       });
     } catch (e) {
       setState(() {
-        mensaje = 'Error al listar: $e';
-      });
-    } finally {
-      setState(() {
-        cargando = false;
+        mensaje = 'Error al tomar la foto: $e';
       });
     }
   }
 
   Future<void> buscar() async {
-    final numeroMedidor = medidorCtrl.text.trim();
-
-    if (numeroMedidor.isEmpty) {
-      setState(() {
-        mensaje = 'Ingresa un número de medidor';
-      });
-      return;
-    }
-
     setState(() {
       cargando = true;
       mensaje = '';
     });
 
-    try {
-      final dato = await service.buscarPorMedidor(numeroMedidor);
+    final resultado = await controlador.buscarPorMedidor(medidorCtrl.text);
 
-      setState(() {
-        lectura = dato;
+    setState(() {
+      cargando = false;
+      mensaje = resultado.mensaje;
+
+      if (resultado.ok && resultado.lectura != null) {
+        lectura = resultado.lectura;
         mostrarLista = false;
         mostrarDetalle = true;
         mostrarFormularioActualizar = false;
         lecturaActualCtrl.text =
-        dato.lecturaActual == null ? '' : dato.lecturaActual.toString();
-
+            resultado.lectura!.lecturaActual?.toString() ?? '';
         limpiarFotoTemporal();
-      });
-    } catch (e) {
-      setState(() {
+      } else {
         lectura = null;
         mostrarDetalle = false;
         mostrarFormularioActualizar = false;
-        mensaje = 'No encontrado o error';
-      });
-    } finally {
-      setState(() {
-        cargando = false;
-      });
-    }
-  }
-
-  String _fechaActualSql() {
-    final now = DateTime.now();
-    final y = now.year.toString().padLeft(4, '0');
-    final m = now.month.toString().padLeft(2, '0');
-    final d = now.day.toString().padLeft(2, '0');
-    final h = now.hour.toString().padLeft(2, '0');
-    final min = now.minute.toString().padLeft(2, '0');
-    final s = now.second.toString().padLeft(2, '0');
-    return '$y-$m-$d $h:$min:$s';
+      }
+    });
   }
 
   Future<void> actualizar() async {
-    if (lectura == null) {
-      setState(() {
-        mensaje = 'Primero busca un medidor';
-      });
-      return;
-    }
-
-    final int? lecturaActual = int.tryParse(lecturaActualCtrl.text.trim());
-
-    if (lecturaActual == null) {
-      setState(() {
-        mensaje = 'Ingresa una lectura actual válida';
-      });
-      return;
-    }
-
     setState(() {
       cargando = true;
       mensaje = '';
     });
 
-    try {
-      final posicion = await _obtenerUbicacionActual();
+    final resultado = await controlador.actualizarLocalmente(
+      lectura: lectura,
+      numeroMedidor: medidorCtrl.text,
+      textoLecturaActual: lecturaActualCtrl.text,
+      fotoPathLocal: fotoGuardadaPath,
+      fotoFechaToma: fotoFechaTomaExif,
+      fotoLatitud: fotoLatitudExif,
+      fotoLongitud: fotoLongitudExif,
+      usuarioActualizo: '',
+    );
 
-      final msg = await service.actualizarLectura(
-        numeroMedidor: medidorCtrl.text.trim(),
-        lecturaActual: lecturaActual,
-        fechaLectura: _fechaActualSql(),
-        latitudGps: posicion.latitude,
-        longitudGps: posicion.longitude,
-        fotoPathLocal: fotoGuardadaPath,
-        fotoFechaToma: fotoFechaTomaExif,
-        fotoLatitud: fotoLatitudExif,
-        fotoLongitud: fotoLongitudExif,
-      );
+    setState(() {
+      cargando = false;
+      mensaje = resultado.mensaje;
 
-      final datoActualizado =
-      await service.buscarPorMedidor(medidorCtrl.text.trim());
-
-      setState(() {
-        lectura = datoActualizado;
+      if (resultado.ok) {
+        lectura = resultado.lectura;
         mostrarLista = false;
         mostrarDetalle = true;
         mostrarFormularioActualizar = false;
-        mensaje = msg;
-      });
-    } catch (e) {
-      setState(() {
-        mensaje = 'Error al actualizar: $e';
-      });
-    } finally {
-      setState(() {
-        cargando = false;
-      });
-    }
+      }
+    });
   }
 
   Widget buildInfoRow(String titulo, dynamic valor) {
@@ -587,7 +316,6 @@ class _LecturaScreenState extends State<LecturaScreen> {
                 ],
               ),
             ),
-
             if (mensaje.isNotEmpty) ...[
               const SizedBox(height: 12),
               Container(
@@ -599,7 +327,6 @@ class _LecturaScreenState extends State<LecturaScreen> {
                 child: Text(mensaje),
               ),
             ],
-
             if (mostrarDetalle && lectura != null) ...[
               const SizedBox(height: 16),
               buildCard(
@@ -633,7 +360,6 @@ class _LecturaScreenState extends State<LecturaScreen> {
                 ),
               ),
             ],
-
             if (mostrarDetalle &&
                 mostrarFormularioActualizar &&
                 lectura != null) ...[
@@ -654,7 +380,6 @@ class _LecturaScreenState extends State<LecturaScreen> {
                       ),
                     ),
                     const SizedBox(height: 12),
-
                     SizedBox(
                       width: double.infinity,
                       child: OutlinedButton.icon(
@@ -667,7 +392,6 @@ class _LecturaScreenState extends State<LecturaScreen> {
                         ),
                       ),
                     ),
-
                     if (fotoGuardadaPath != null) ...[
                       const SizedBox(height: 12),
                       ClipRRect(
@@ -682,14 +406,20 @@ class _LecturaScreenState extends State<LecturaScreen> {
                       const SizedBox(height: 8),
                       Text(
                         fotoGuardadaPath!,
-                        style: const TextStyle(fontSize: 12, color: Colors.black54),
+                        style: const TextStyle(
+                          fontSize: 12,
+                          color: Colors.black54,
+                        ),
                       ),
                       const SizedBox(height: 8),
                       Text('EXIF fecha: ${fotoFechaTomaExif ?? "-"}'),
-                      Text('EXIF latitud: ${fotoLatitudExif?.toString() ?? "-"}'),
-                      Text('EXIF longitud: ${fotoLongitudExif?.toString() ?? "-"}'),
+                      Text(
+                        'EXIF latitud: ${fotoLatitudExif?.toString() ?? "-"}',
+                      ),
+                      Text(
+                        'EXIF longitud: ${fotoLongitudExif?.toString() ?? "-"}',
+                      ),
                     ],
-
                     const SizedBox(height: 14),
                     Row(
                       children: [
@@ -698,11 +428,7 @@ class _LecturaScreenState extends State<LecturaScreen> {
                             onPressed: () {
                               setState(() {
                                 mostrarFormularioActualizar = false;
-                                fotoTomada = null;
-                                fotoGuardadaPath = null;
-                                fotoFechaTomaExif = null;
-                                fotoLatitudExif = null;
-                                fotoLongitudExif = null;
+                                limpiarFotoTemporal();
                               });
                             },
                             child: const Text('Cancelar'),
@@ -722,7 +448,6 @@ class _LecturaScreenState extends State<LecturaScreen> {
                 ),
               ),
             ],
-
             if (mostrarLista) ...[
               const SizedBox(height: 18),
               const Text(
@@ -734,10 +459,7 @@ class _LecturaScreenState extends State<LecturaScreen> {
               ),
               const SizedBox(height: 10),
             ],
-
-            if (cargando)
-              const Center(child: CircularProgressIndicator()),
-
+            if (cargando) const Center(child: CircularProgressIndicator()),
             if (mostrarLista)
               ...lecturas.map((item) {
                 return Card(

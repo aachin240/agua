@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
 import 'screens/lectura_screen.dart';
+import 'services/local/database_service.dart';
 
-void main() {
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  await DatabaseService.instance.database;
   runApp(const MyApp());
 }
 
