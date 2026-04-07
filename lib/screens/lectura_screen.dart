@@ -1,12 +1,13 @@
 import 'dart:io';
+
 import 'package:flutter/material.dart';
 
-import '../models/lectura.dart';
 import '../controllers/lectura_controlador.dart';
+import '../models/lectura.dart';
+import '../services/device/servicio_foto.dart';
+import '../services/device/servicio_ubicacion.dart';
 import '../services/lectura_service.dart';
 import '../services/local/lectura_local_service.dart';
-import '../services/device/servicio_ubicacion.dart';
-import '../services/device/servicio_foto.dart';
 
 class LecturaScreen extends StatefulWidget {
   const LecturaScreen({super.key});
@@ -23,13 +24,9 @@ class _LecturaScreenState extends State<LecturaScreen> {
 
   late final LecturaControlador controlador;
 
-  String? fotoGuardadaPath;
-  String? fotoFechaTomaExif;
-  double? fotoLatitudExif;
-  double? fotoLongitudExif;
-
   final TextEditingController medidorCtrl = TextEditingController();
   final TextEditingController lecturaActualCtrl = TextEditingController();
+  final TextEditingController observacionCtrl = TextEditingController();
 
   Lectura? lectura;
   List<Lectura> lecturas = [];
@@ -37,8 +34,13 @@ class _LecturaScreenState extends State<LecturaScreen> {
   String mensaje = '';
   bool cargando = false;
   bool mostrarDetalle = false;
-  bool mostrarFormularioActualizar = false;
+  bool mostrarFormularioGuardar = false;
   bool mostrarLista = true;
+
+  String? fotoGuardadaPath;
+  String? fotoFechaTomaExif;
+  double? fotoLatitudExif;
+  double? fotoLongitudExif;
 
   @override
   void initState() {
@@ -57,6 +59,7 @@ class _LecturaScreenState extends State<LecturaScreen> {
   void dispose() {
     medidorCtrl.dispose();
     lecturaActualCtrl.dispose();
+    observacionCtrl.dispose();
     super.dispose();
   }
 
@@ -67,13 +70,19 @@ class _LecturaScreenState extends State<LecturaScreen> {
     fotoLongitudExif = null;
   }
 
+  void limpiarFormulario() {
+    lecturaActualCtrl.clear();
+    observacionCtrl.clear();
+    limpiarFotoTemporal();
+  }
+
   Future<void> cargarDatosIniciales() async {
     setState(() {
       cargando = true;
       mensaje = '';
       mostrarLista = true;
       mostrarDetalle = false;
-      mostrarFormularioActualizar = false;
+      mostrarFormularioGuardar = false;
       lectura = null;
     });
 
@@ -91,10 +100,10 @@ class _LecturaScreenState extends State<LecturaScreen> {
       cargando = true;
       mostrarLista = true;
       mostrarDetalle = false;
-      mostrarFormularioActualizar = false;
+      mostrarFormularioGuardar = false;
       lectura = null;
       mensaje = '';
-      limpiarFotoTemporal();
+      limpiarFormulario();
     });
 
     final resultado = await controlador.listarDesdeBaseLocal();
@@ -104,37 +113,6 @@ class _LecturaScreenState extends State<LecturaScreen> {
       mensaje = resultado.mensaje;
       lecturas = resultado.lecturas ?? [];
     });
-  }
-
-  Future<void> tomarFoto() async {
-    setState(() {
-      mensaje = '';
-    });
-
-    try {
-      final posicion = await servicioUbicacion.obtenerUbicacionActual();
-
-      final resultado = await servicioFoto.tomarYPrepararFoto(
-        latitudActual: posicion.latitude,
-        longitudActual: posicion.longitude,
-      );
-
-      if (resultado == null) {
-        return;
-      }
-
-      setState(() {
-        fotoGuardadaPath = resultado.rutaFotoGuardada;
-        fotoFechaTomaExif = resultado.fechaToma;
-        fotoLatitudExif = resultado.latitud;
-        fotoLongitudExif = resultado.longitud;
-        mensaje = 'Foto tomada correctamente';
-      });
-    } catch (e) {
-      setState(() {
-        mensaje = 'Error al tomar la foto: $e';
-      });
-    }
   }
 
   Future<void> buscar() async {
@@ -153,33 +131,61 @@ class _LecturaScreenState extends State<LecturaScreen> {
         lectura = resultado.lectura;
         mostrarLista = false;
         mostrarDetalle = true;
-        mostrarFormularioActualizar = false;
-        lecturaActualCtrl.text =
-            resultado.lectura!.lecturaActual?.toString() ?? '';
+        mostrarFormularioGuardar = false;
+        lecturaActualCtrl.clear();
+        observacionCtrl.clear();
         limpiarFotoTemporal();
       } else {
         lectura = null;
         mostrarDetalle = false;
-        mostrarFormularioActualizar = false;
+        mostrarFormularioGuardar = false;
       }
     });
   }
 
-  Future<void> actualizar() async {
+  Future<void> tomarFoto() async {
+    setState(() {
+      mensaje = '';
+    });
+
+    try {
+      final posicion = await servicioUbicacion.obtenerUbicacionActual();
+
+      final resultado = await servicioFoto.tomarYPrepararFoto(
+        latitudActual: posicion.latitude,
+        longitudActual: posicion.longitude,
+      );
+
+      if (resultado == null) return;
+
+      setState(() {
+        fotoGuardadaPath = resultado.rutaFotoGuardada;
+        fotoFechaTomaExif = resultado.fechaToma;
+        fotoLatitudExif = resultado.latitud;
+        fotoLongitudExif = resultado.longitud;
+        mensaje = 'Foto tomada correctamente';
+      });
+    } catch (e) {
+      setState(() {
+        mensaje = 'Error al tomar la foto: $e';
+      });
+    }
+  }
+
+  Future<void> guardarLecturaOffline() async {
     setState(() {
       cargando = true;
       mensaje = '';
     });
 
-    final resultado = await controlador.actualizarLocalmente(
-      lectura: lectura,
+    final resultado = await controlador.guardarLecturaOffline(
+      cuenta: lectura,
       numeroMedidor: medidorCtrl.text,
       textoLecturaActual: lecturaActualCtrl.text,
       fotoPathLocal: fotoGuardadaPath,
-      fotoFechaToma: fotoFechaTomaExif,
-      fotoLatitud: fotoLatitudExif,
-      fotoLongitud: fotoLongitudExif,
-      usuarioActualizo: '',
+      observacion: observacionCtrl.text.trim().isEmpty
+          ? null
+          : observacionCtrl.text.trim(),
     );
 
     setState(() {
@@ -190,7 +196,8 @@ class _LecturaScreenState extends State<LecturaScreen> {
         lectura = resultado.lectura;
         mostrarLista = false;
         mostrarDetalle = true;
-        mostrarFormularioActualizar = false;
+        mostrarFormularioGuardar = false;
+        limpiarFormulario();
       }
     });
   }
@@ -202,7 +209,7 @@ class _LecturaScreenState extends State<LecturaScreen> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           SizedBox(
-            width: 130,
+            width: 140,
             child: Text(
               titulo,
               style: const TextStyle(
@@ -213,7 +220,9 @@ class _LecturaScreenState extends State<LecturaScreen> {
           ),
           Expanded(
             child: Text(
-              valor == null ? '-' : valor.toString(),
+              valor == null || valor.toString().trim().isEmpty
+                  ? '-'
+                  : valor.toString(),
               style: const TextStyle(color: Colors.black54),
             ),
           ),
@@ -258,6 +267,13 @@ class _LecturaScreenState extends State<LecturaScreen> {
         ),
       ),
     );
+  }
+
+  String tituloTarjeta(Lectura item) {
+    if (item.codigoCuenta.trim().isNotEmpty) {
+      return 'Cuenta ${item.codigoCuenta}';
+    }
+    return 'Medidor ${item.numeroMedidor}';
   }
 
   @override
@@ -330,50 +346,70 @@ class _LecturaScreenState extends State<LecturaScreen> {
             if (mostrarDetalle && lectura != null) ...[
               const SizedBox(height: 16),
               buildCard(
-                titulo: 'Datos del medidor',
+                titulo: 'Datos de la cuenta',
                 icon: Icons.description_outlined,
                 child: Column(
                   children: [
-                    buildInfoRow('Nombre', lectura!.nombre),
-                    buildInfoRow('Dirección', lectura!.direccion),
-                    buildInfoRow('Teléfono', lectura!.telefono),
+                    buildInfoRow('ID cuenta', lectura!.idCuenta),
+                    buildInfoRow('Código cuenta', lectura!.codigoCuenta),
+                    buildInfoRow('ID propietario', lectura!.idPropietario),
                     buildInfoRow('Medidor', lectura!.numeroMedidor),
+                    buildInfoRow('Dirección', lectura!.direccionServicio),
+                    buildInfoRow('Teléfono', lectura!.telefonoContacto),
                     buildInfoRow('Lectura anterior', lectura!.lecturaAnterior),
                     buildInfoRow('Lectura actual', lectura!.lecturaActual),
+                    buildInfoRow('Consumo m3', lectura!.consumoM3),
                     buildInfoRow('Fecha lectura', lectura!.fechaLectura),
-                    buildInfoRow('Latitud GPS', lectura!.latitudGps),
-                    buildInfoRow('Longitud GPS', lectura!.longitudGps),
                     const SizedBox(height: 14),
                     SizedBox(
                       width: double.infinity,
                       child: ElevatedButton.icon(
                         onPressed: () {
                           setState(() {
-                            mostrarFormularioActualizar = true;
+                            mostrarFormularioGuardar = true;
+                            lecturaActualCtrl.clear();
+                            observacionCtrl.clear();
+                            limpiarFotoTemporal();
                           });
                         },
                         icon: const Icon(Icons.edit),
-                        label: const Text('Actualizar lectura'),
+                        label: const Text('Registrar nueva lectura'),
                       ),
                     ),
                   ],
                 ),
               ),
             ],
-            if (mostrarDetalle &&
-                mostrarFormularioActualizar &&
-                lectura != null) ...[
+            if (mostrarDetalle && mostrarFormularioGuardar && lectura != null) ...[
               const SizedBox(height: 16),
               buildCard(
-                titulo: 'Actualizar lectura',
+                titulo: 'Nueva lectura',
                 icon: Icons.edit_note,
                 child: Column(
                   children: [
+                    buildInfoRow(
+                      'Anterior automática',
+                      lectura!.lecturaActual > 0
+                          ? lectura!.lecturaActual
+                          : lectura!.lecturaAnterior,
+                    ),
+                    const SizedBox(height: 12),
                     TextField(
                       controller: lecturaActualCtrl,
                       keyboardType: TextInputType.number,
                       decoration: InputDecoration(
                         labelText: 'Lectura actual',
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(14),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: observacionCtrl,
+                      maxLines: 3,
+                      decoration: InputDecoration(
+                        labelText: 'Observación (opcional)',
                         border: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(14),
                         ),
@@ -427,8 +463,8 @@ class _LecturaScreenState extends State<LecturaScreen> {
                           child: OutlinedButton(
                             onPressed: () {
                               setState(() {
-                                mostrarFormularioActualizar = false;
-                                limpiarFotoTemporal();
+                                mostrarFormularioGuardar = false;
+                                limpiarFormulario();
                               });
                             },
                             child: const Text('Cancelar'),
@@ -437,7 +473,7 @@ class _LecturaScreenState extends State<LecturaScreen> {
                         const SizedBox(width: 10),
                         Expanded(
                           child: ElevatedButton.icon(
-                            onPressed: cargando ? null : actualizar,
+                            onPressed: cargando ? null : guardarLecturaOffline,
                             icon: const Icon(Icons.save),
                             label: const Text('Guardar'),
                           ),
@@ -451,7 +487,7 @@ class _LecturaScreenState extends State<LecturaScreen> {
             if (mostrarLista) ...[
               const SizedBox(height: 18),
               const Text(
-                'Listado completo',
+                'Listado local',
                 style: TextStyle(
                   fontSize: 19,
                   fontWeight: FontWeight.bold,
@@ -475,19 +511,20 @@ class _LecturaScreenState extends State<LecturaScreen> {
                     },
                     contentPadding: const EdgeInsets.all(14),
                     leading: const CircleAvatar(
-                      child: Icon(Icons.person_outline),
+                      child: Icon(Icons.water_drop_outlined),
                     ),
                     title: Text(
-                      item.nombre,
+                      tituloTarjeta(item),
                       style: const TextStyle(fontWeight: FontWeight.w600),
                     ),
                     subtitle: Padding(
                       padding: const EdgeInsets.only(top: 8),
                       child: Text(
                         'Medidor: ${item.numeroMedidor}\n'
+                            'Dirección: ${item.direccionServicio.isEmpty ? "-" : item.direccionServicio}\n'
                             'Lectura anterior: ${item.lecturaAnterior}\n'
                             'Lectura actual: ${item.lecturaActual}\n'
-                            'Fecha: ${item.fechaLectura}',
+                            'Fecha: ${item.fechaLectura ?? "-"}',
                       ),
                     ),
                   ),

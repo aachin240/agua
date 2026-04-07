@@ -35,19 +35,19 @@ class LecturaControlador {
       if (listaLocal.isNotEmpty) {
         return ResultadoOperacionLectura(
           ok: true,
-          mensaje: 'Datos cargados desde SQLite',
+          mensaje: 'Datos cargados',
           lecturas: listaLocal,
         );
       }
 
       final listaRemota = await servicioRemoto.listarTodo();
-      await servicioLocal.guardarLecturasIniciales(listaRemota);
+      await servicioLocal.guardarCuentasIniciales(listaRemota);
 
       final listaGuardada = await servicioLocal.listarTodo();
 
       return ResultadoOperacionLectura(
         ok: true,
-        mensaje: 'Datos descargados y guardados localmente',
+        mensaje: 'Cuentas descargadas y guardadas localmente',
         lecturas: listaGuardada,
       );
     } catch (e) {
@@ -64,13 +64,13 @@ class LecturaControlador {
 
       return ResultadoOperacionLectura(
         ok: true,
-        mensaje: 'Datos cargados desde SQLite',
+        mensaje: 'Datos cargados',
         lecturas: lista,
       );
     } catch (e) {
       return ResultadoOperacionLectura(
         ok: false,
-        mensaje: 'Error al listar desde SQLite: $e',
+        mensaje: 'Error al listar: $e',
       );
     }
   }
@@ -91,33 +91,44 @@ class LecturaControlador {
       if (dato == null) {
         return ResultadoOperacionLectura(
           ok: false,
-          mensaje: 'No encontrado en SQLite',
+          mensaje: 'No encontrado',
         );
       }
 
       return ResultadoOperacionLectura(
         ok: true,
-        mensaje: 'Lectura encontrada',
+        mensaje: 'Medidor encontrado',
         lectura: dato,
       );
     } catch (e) {
       return ResultadoOperacionLectura(
         ok: false,
-        mensaje: 'Error al buscar en SQLite: $e',
+        mensaje: 'Error al buscar: $e',
       );
     }
   }
 
-  int? convertirEntero(dynamic valor) {
+  num? convertirNumero(dynamic valor) {
     if (valor == null) return null;
-    return int.tryParse(valor.toString().trim());
+    if (valor is num) return valor;
+
+    final texto = valor.toString().trim();
+    return num.tryParse(texto);
   }
 
-  String? validarLecturaActual({
-    required Lectura? lectura,
-    required int lecturaActual,
+  String fechaActualSoloFecha() {
+    final ahora = DateTime.now();
+    String dosDigitos(int n) => n.toString().padLeft(2, '0');
+
+    return '${ahora.year}-${dosDigitos(ahora.month)}-${dosDigitos(ahora.day)}';
+  }
+
+  String? validarNuevaLectura({
+    required Lectura? cuenta,
+    required num lecturaActual,
+    required String? fotoPathLocal,
   }) {
-    if (lectura == null) {
+    if (cuenta == null) {
       return 'Primero busca un medidor';
     }
 
@@ -125,39 +136,31 @@ class LecturaControlador {
       return 'La lectura actual no puede ser negativa';
     }
 
-    final int? lecturaAnterior = convertirEntero(lectura.lecturaAnterior);
-
-    if (lecturaAnterior == null) {
-      return 'La lectura anterior no es válida';
-    }
+    final num lecturaAnterior =
+        convertirNumero(cuenta.lecturaActual) ??
+            convertirNumero(cuenta.lecturaAnterior) ??
+            0;
 
     if (lecturaActual <= lecturaAnterior) {
       return 'La lectura actual debe ser mayor que la lectura anterior';
     }
 
+    if (fotoPathLocal == null || fotoPathLocal.trim().isEmpty) {
+      return 'Debes tomar una foto';
+    }
+
     return null;
   }
 
-  String fechaActualSql() {
-    final ahora = DateTime.now();
-    String dosDigitos(int n) => n.toString().padLeft(2, '0');
-
-    return '${ahora.year}-${dosDigitos(ahora.month)}-${dosDigitos(ahora.day)} '
-        '${dosDigitos(ahora.hour)}:${dosDigitos(ahora.minute)}:${dosDigitos(ahora.second)}';
-  }
-
-  Future<ResultadoOperacionLectura> actualizarLocalmente({
-    required Lectura? lectura,
+  Future<ResultadoOperacionLectura> guardarLecturaOffline({
+    required Lectura? cuenta,
     required String numeroMedidor,
     required String textoLecturaActual,
-    String? fotoPathLocal,
-    String? fotoFechaToma,
-    double? fotoLatitud,
-    double? fotoLongitud,
-    String? usuarioActualizo,
+    required String? fotoPathLocal,
+    String? observacion,
   }) async {
     try {
-      final int? lecturaActual = int.tryParse(textoLecturaActual.trim());
+      final num? lecturaActual = num.tryParse(textoLecturaActual.trim());
 
       if (lecturaActual == null) {
         return ResultadoOperacionLectura(
@@ -166,9 +169,10 @@ class LecturaControlador {
         );
       }
 
-      final errorValidacion = validarLecturaActual(
-        lectura: lectura,
+      final errorValidacion = validarNuevaLectura(
+        cuenta: cuenta,
         lecturaActual: lecturaActual,
+        fotoPathLocal: fotoPathLocal,
       );
 
       if (errorValidacion != null) {
@@ -180,17 +184,34 @@ class LecturaControlador {
 
       final posicion = await servicioUbicacion.obtenerUbicacionActual();
 
-      await servicioLocal.actualizarLecturaLocal(
+      final lecturaAnterior =
+          convertirNumero(cuenta!.lecturaActual) ??
+              convertirNumero(cuenta.lecturaAnterior) ??
+              0;
+
+      final consumoM3 = lecturaActual - lecturaAnterior;
+      final fechaLectura = fechaActualSoloFecha();
+
+      await servicioLocal.guardarLecturaPendiente(
+        idCuenta: cuenta.idCuenta!,
         numeroMedidor: numeroMedidor.trim(),
+        lecturaAnterior: lecturaAnterior,
         lecturaActual: lecturaActual,
-        fechaLectura: fechaActualSql(),
+        consumoM3: consumoM3,
+        fechaLectura: fechaLectura,
+        fotoPathLocal: fotoPathLocal!,
+        usuarioRegistro: 'app',
+        observacion: observacion,
         latitudGps: posicion.latitude,
         longitudGps: posicion.longitude,
-        fotoPathLocal: fotoPathLocal,
-        fotoFechaToma: fotoFechaToma,
-        fotoLatitud: fotoLatitud,
-        fotoLongitud: fotoLongitud,
-        usuarioActualizo: usuarioActualizo,
+      );
+
+      await servicioLocal.actualizarCuentaLocalDespuesDeLectura(
+        numeroMedidor: numeroMedidor.trim(),
+        lecturaAnterior: lecturaAnterior,
+        lecturaActual: lecturaActual,
+        consumoM3: consumoM3,
+        fechaLectura: fechaLectura,
       );
 
       final datoActualizado =
@@ -198,13 +219,13 @@ class LecturaControlador {
 
       return ResultadoOperacionLectura(
         ok: true,
-        mensaje: 'Guardado localmente. Pendiente de sincronización.',
+        mensaje: 'Lectura guardada. Pendiente de sincronización.',
         lectura: datoActualizado,
       );
     } catch (e) {
       return ResultadoOperacionLectura(
         ok: false,
-        mensaje: 'Error al actualizar localmente: $e',
+        mensaje: 'Error al guardar lectura: $e',
       );
     }
   }
