@@ -28,6 +28,12 @@ class _LecturaScreenState extends State<LecturaScreen> {
   final TextEditingController lecturaActualCtrl = TextEditingController();
   final TextEditingController observacionCtrl = TextEditingController();
 
+  int pendientesSync = 0;
+  int erroresSync = 0;
+  bool sincronizando = false;
+  String progresoSync = '';
+  List<Lectura> lecturasConError = [];
+
   Lectura? lectura;
   List<Lectura> lecturas = [];
 
@@ -63,6 +69,50 @@ class _LecturaScreenState extends State<LecturaScreen> {
     super.dispose();
   }
 
+  Future<void> cargarResumenSync() async {
+    final resumen = await controlador.obtenerResumenSincronizacion();
+
+    if (!mounted) return;
+
+    setState(() {
+      pendientesSync = resumen.pendientes;
+      erroresSync = resumen.errores;
+      lecturasConError = resumen.conError;
+    });
+  }
+
+  Future<void> sincronizarAhora() async {
+    setState(() {
+      sincronizando = true;
+      progresoSync = '';
+      mensaje = '';
+    });
+
+    final resultado = await controlador.sincronizarPendientes(
+      onProgress: (actual, total) {
+        if (!mounted) return;
+        setState(() {
+          progresoSync = 'Sincronizando $actual de $total';
+        });
+      },
+    );
+
+    await listarTodo();
+    await cargarResumenSync();
+
+    if (!mounted) return;
+
+    setState(() {
+      sincronizando = false;
+      progresoSync = '';
+      mensaje =
+      '${resultado.mensaje}. '
+          'Exitosas: ${resultado.exitosas}, '
+          'Errores: ${resultado.errores}, '
+          'Conflictos: ${resultado.conflictos}';
+    });
+  }
+
   void limpiarFotoTemporal() {
     fotoGuardadaPath = null;
     fotoFechaTomaExif = null;
@@ -87,6 +137,9 @@ class _LecturaScreenState extends State<LecturaScreen> {
     });
 
     final resultado = await controlador.cargarDatosIniciales();
+    await cargarResumenSync();
+
+    if (!mounted) return;
 
     setState(() {
       cargando = false;
@@ -107,6 +160,9 @@ class _LecturaScreenState extends State<LecturaScreen> {
     });
 
     final resultado = await controlador.listarDesdeBaseLocal();
+    await cargarResumenSync();
+
+    if (!mounted) return;
 
     setState(() {
       cargando = false;
@@ -122,6 +178,8 @@ class _LecturaScreenState extends State<LecturaScreen> {
     });
 
     final resultado = await controlador.buscarPorMedidor(medidorCtrl.text);
+
+    if (!mounted) return;
 
     setState(() {
       cargando = false;
@@ -156,7 +214,7 @@ class _LecturaScreenState extends State<LecturaScreen> {
         longitudActual: posicion.longitude,
       );
 
-      if (resultado == null) return;
+      if (resultado == null || !mounted) return;
 
       setState(() {
         fotoGuardadaPath = resultado.rutaFotoGuardada;
@@ -166,6 +224,7 @@ class _LecturaScreenState extends State<LecturaScreen> {
         mensaje = 'Foto tomada correctamente';
       });
     } catch (e) {
+      if (!mounted) return;
       setState(() {
         mensaje = 'Error al tomar la foto: $e';
       });
@@ -187,6 +246,12 @@ class _LecturaScreenState extends State<LecturaScreen> {
           ? null
           : observacionCtrl.text.trim(),
     );
+
+    if (resultado.ok) {
+      await cargarResumenSync();
+    }
+
+    if (!mounted) return;
 
     setState(() {
       cargando = false;
@@ -343,6 +408,64 @@ class _LecturaScreenState extends State<LecturaScreen> {
                 child: Text(mensaje),
               ),
             ],
+            const SizedBox(height: 16),
+            buildCard(
+              titulo: 'Sincronización',
+              icon: Icons.sync,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  buildInfoRow('Pendientes', pendientesSync),
+                  buildInfoRow('Errores', erroresSync),
+                  if (progresoSync.isNotEmpty) ...[
+                    const SizedBox(height: 8),
+                    Text(
+                      progresoSync,
+                      style: const TextStyle(fontWeight: FontWeight.w600),
+                    ),
+                  ],
+                  const SizedBox(height: 12),
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton.icon(
+                      onPressed: (cargando || sincronizando || pendientesSync == 0)
+                          ? null
+                          : sincronizarAhora,
+                      icon: const Icon(Icons.cloud_upload),
+                      label: Text(
+                        sincronizando ? 'Sincronizando...' : 'Sincronizar ahora',
+                      ),
+                    ),
+                  ),
+                  if (lecturasConError.isNotEmpty) ...[
+                    const SizedBox(height: 14),
+                    const Text(
+                      'Lecturas con novedades',
+                      style: TextStyle(fontWeight: FontWeight.bold),
+                    ),
+                    const SizedBox(height: 8),
+                    ...lecturasConError.map(
+                          (e) => Container(
+                        margin: const EdgeInsets.only(bottom: 8),
+                        padding: const EdgeInsets.all(10),
+                        decoration: BoxDecoration(
+                          color: Colors.red.shade50,
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text('Medidor: ${e.numeroMedidor}'),
+                            Text('Fecha: ${e.fechaLectura ?? "-"}'),
+                            Text('Error: ${e.syncError ?? "Error no identificado"}'),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
             if (mostrarDetalle && lectura != null) ...[
               const SizedBox(height: 16),
               buildCard(
@@ -396,7 +519,7 @@ class _LecturaScreenState extends State<LecturaScreen> {
                     const SizedBox(height: 12),
                     TextField(
                       controller: lecturaActualCtrl,
-                      keyboardType: TextInputType.number,
+                      keyboardType: const TextInputType.numberWithOptions(decimal: true),
                       decoration: InputDecoration(
                         labelText: 'Lectura actual',
                         border: OutlineInputBorder(
@@ -448,13 +571,9 @@ class _LecturaScreenState extends State<LecturaScreen> {
                         ),
                       ),
                       const SizedBox(height: 8),
-                      Text('EXIF fecha: ${fotoFechaTomaExif ?? "-"}'),
-                      Text(
-                        'EXIF latitud: ${fotoLatitudExif?.toString() ?? "-"}',
-                      ),
-                      Text(
-                        'EXIF longitud: ${fotoLongitudExif?.toString() ?? "-"}',
-                      ),
+                      Text('Fecha: ${fotoFechaTomaExif ?? "-"}'),
+                      Text('Latitud: ${fotoLatitudExif?.toString() ?? "-"}'),
+                      Text('Longitud: ${fotoLongitudExif?.toString() ?? "-"}'),
                     ],
                     const SizedBox(height: 14),
                     Row(
@@ -487,7 +606,7 @@ class _LecturaScreenState extends State<LecturaScreen> {
             if (mostrarLista) ...[
               const SizedBox(height: 18),
               const Text(
-                'Listado local',
+                'Listado',
                 style: TextStyle(
                   fontSize: 19,
                   fontWeight: FontWeight.bold,

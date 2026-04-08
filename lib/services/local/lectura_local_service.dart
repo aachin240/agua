@@ -171,4 +171,85 @@ class LecturaLocalService {
       whereArgs: [idLocal],
     );
   }
+
+  Future<void> eliminarPendiente(int idLocal) async {
+    final db = await _db;
+
+    await db.delete(
+      'lectura_pendiente',
+      where: 'id_local = ?',
+      whereArgs: [idLocal],
+    );
+  }
+
+  Future<void> marcarComoConflicto(int idLocal, String mensaje) async {
+    final db = await _db;
+
+    await db.update(
+      'lectura_pendiente',
+      {
+        'pendiente_sync': 0,
+        'estado_sync': 'conflict',
+        'sync_error': mensaje,
+        'synced_at': DateTime.now().toIso8601String(),
+      },
+      where: 'id_local = ?',
+      whereArgs: [idLocal],
+    );
+  }
+
+  Future<void> limpiarCuentasLocales() async {
+    final db = await _db;
+    await db.delete('cuenta_local');
+  }
+
+  Future<void> marcarComoSincronizando(int idLocal) async {
+    final db = await _db;
+
+    await db.update(
+      'lectura_pendiente',
+      {
+        'estado_sync': 'syncing',
+        'sync_error': null,
+      },
+      where: 'id_local = ?',
+      whereArgs: [idLocal],
+    );
+  }
+
+  Future<int> contarPendientes() async {
+    final db = await _db;
+
+    final result = await db.rawQuery('''
+    SELECT COUNT(*) AS total
+    FROM lectura_pendiente
+    WHERE pendiente_sync = 1
+  ''');
+
+    return (result.first['total'] as int?) ?? 0;
+  }
+
+  Future<int> contarErrores() async {
+    final db = await _db;
+
+    final result = await db.rawQuery('''
+    SELECT COUNT(*) AS total
+    FROM lectura_pendiente
+    WHERE estado_sync IN ('error', 'conflict')
+  ''');
+
+    return (result.first['total'] as int?) ?? 0;
+  }
+
+  Future<List<Lectura>> obtenerConError() async {
+    final db = await _db;
+
+    final result = await db.query(
+      'lectura_pendiente',
+      where: "estado_sync IN ('error', 'conflict')",
+      orderBy: 'updated_local_at ASC',
+    );
+
+    return result.map((e) => Lectura.fromJson(e)).toList();
+  }
 }

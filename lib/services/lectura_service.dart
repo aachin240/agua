@@ -14,7 +14,7 @@ class LecturaService {
     final response = await http.get(uri);
 
     if (response.statusCode != 200) {
-      throw Exception('Error HTTP ${response.statusCode}');
+      throw Exception('El servidor respondió con un error');
     }
 
     final body = response.body.trim();
@@ -52,7 +52,7 @@ class LecturaService {
       final file = File(fotoPathLocal);
 
       if (!await file.exists()) {
-        throw Exception('No existe la foto local');
+        throw Exception('No se encontró la foto guardada en el dispositivo');
       }
 
       final bytes = await file.readAsBytes();
@@ -77,7 +77,7 @@ class LecturaService {
     );
 
     if (response.statusCode != 200) {
-      throw Exception('Error HTTP ${response.statusCode}');
+      throw Exception('El servidor respondió con un error');
     }
 
     final body = response.body.trim();
