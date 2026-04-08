@@ -8,9 +8,17 @@ import '../services/device/servicio_foto.dart';
 import '../services/device/servicio_ubicacion.dart';
 import '../services/lectura_service.dart';
 import '../services/local/lectura_local_service.dart';
+import '../models/usuario_sesion.dart';
+import '../services/local/session_service.dart';
+import 'login_screen.dart';
 
 class LecturaScreen extends StatefulWidget {
-  const LecturaScreen({super.key});
+  final UsuarioSesion usuarioSesion;
+
+  const LecturaScreen({
+    super.key,
+    required this.usuarioSesion,
+  });
 
   @override
   State<LecturaScreen> createState() => _LecturaScreenState();
@@ -245,6 +253,7 @@ class _LecturaScreenState extends State<LecturaScreen> {
       observacion: observacionCtrl.text.trim().isEmpty
           ? null
           : observacionCtrl.text.trim(),
+      usuarioRegistro: widget.usuarioSesion.username,
     );
 
     if (resultado.ok) {
@@ -345,8 +354,24 @@ class _LecturaScreenState extends State<LecturaScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Lecturas de agua'),
+        title: Text('Lecturas - ${widget.usuarioSesion.username}'),
         centerTitle: true,
+        actions: [
+          IconButton(
+            onPressed: () async {
+              final sessionService = SessionService();
+              await sessionService.cerrarSesion();
+
+              if (!mounted) return;
+
+              Navigator.of(context).pushReplacement(
+                MaterialPageRoute(builder: (_) => const LoginScreen()),
+              );
+            },
+            icon: const Icon(Icons.logout),
+            tooltip: 'Cerrar sesión',
+          ),
+        ],
       ),
       body: RefreshIndicator(
         onRefresh: () async {

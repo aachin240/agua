@@ -187,6 +187,7 @@ class LecturaControlador {
     required String numeroMedidor,
     required String textoLecturaActual,
     required String? fotoPathLocal,
+    required String usuarioRegistro,
     String? observacion,
   }) async {
     try {
@@ -230,7 +231,7 @@ class LecturaControlador {
         consumoM3: consumoM3,
         fechaLectura: fechaLectura,
         fotoPathLocal: fotoPathLocal!,
-        usuarioRegistro: 'app',
+        usuarioRegistro: usuarioRegistro,
         observacion: observacion,
         latitudGps: posicion.latitude,
         longitudGps: posicion.longitude,
@@ -371,6 +372,7 @@ class LecturaControlador {
             longitudGps: item.longitudGps,
             observacion: item.observacion,
             fotoPathLocal: item.fotoPathLocal,
+            usuarioRegistro: item.usuarioRegistro ?? 'app',
           );
 
           if (item.idLocal != null) {

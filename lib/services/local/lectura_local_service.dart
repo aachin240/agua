@@ -182,22 +182,6 @@ class LecturaLocalService {
     );
   }
 
-  Future<void> marcarComoConflicto(int idLocal, String mensaje) async {
-    final db = await _db;
-
-    await db.update(
-      'lectura_pendiente',
-      {
-        'pendiente_sync': 0,
-        'estado_sync': 'conflict',
-        'sync_error': mensaje,
-        'synced_at': DateTime.now().toIso8601String(),
-      },
-      where: 'id_local = ?',
-      whereArgs: [idLocal],
-    );
-  }
-
   Future<void> limpiarCuentasLocales() async {
     final db = await _db;
     await db.delete('cuenta_local');

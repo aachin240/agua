@@ -39,6 +39,7 @@ class LecturaService {
     required String numeroMedidor,
     required num lecturaActual,
     required String fechaLectura,
+    required String usuarioRegistro,
     double? latitudGps,
     double? longitudGps,
     String? observacion,
@@ -66,7 +67,7 @@ class LecturaService {
       'latitud_gps': latitudGps,
       'longitud_gps': longitudGps,
       'observacion': (observacion ?? '').trim(),
-      'usuario_registro': 'app',
+      'usuario_registro': usuarioRegistro,
       'foto_base64': fotoBase64,
     };
 
