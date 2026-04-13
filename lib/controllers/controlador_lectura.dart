@@ -60,27 +60,58 @@ class ControladorLectura {
     required this.servicioUbicacion,
   });
 
-  Future<ResultadoOperacionLectura> cargarDatosIniciales() async {
+  Future<ResultadoOperacionLectura> cargarRutas(List<int> rutas) async {
     try {
-      final listaLocal = await servicioLocal.listarTodo();
-
-      if (listaLocal.isNotEmpty) {
+      if (rutas.isEmpty) {
         return ResultadoOperacionLectura(
-          ok: true,
-          mensaje: 'Datos cargados',
-          lecturas: listaLocal,
+          ok: false,
+          mensaje: 'Debes seleccionar al menos una ruta',
         );
       }
 
-      final listaRemota = await servicioRemoto.listarTodo();
+      final listaRemota = await servicioRemoto.listarTodo(rutas: rutas);
+
+      if (listaRemota.isEmpty) {
+        return ResultadoOperacionLectura(
+          ok: false,
+          mensaje: 'No hay cuentas para las rutas seleccionadas',
+        );
+      }
+
+      await servicioLocal.limpiarCuentasLocales();
       await servicioLocal.guardarCuentasIniciales(listaRemota);
 
       final listaGuardada = await servicioLocal.listarTodo();
 
       return ResultadoOperacionLectura(
         ok: true,
-        mensaje: 'Cuentas descargadas y guardadas localmente',
+        mensaje: 'Rutas cargadas correctamente',
         lecturas: listaGuardada,
+      );
+    } catch (e) {
+      return ResultadoOperacionLectura(
+        ok: false,
+        mensaje: 'Error al cargar las rutas: $e',
+      );
+    }
+  }
+
+  Future<ResultadoOperacionLectura> cargarDatosIniciales() async {
+    try {
+      final listaLocal = await servicioLocal.listarTodo();
+
+      if (listaLocal.isEmpty) {
+        return ResultadoOperacionLectura(
+          ok: false,
+          mensaje: 'No hay rutas cargadas. Primero selecciona una o varias rutas.',
+          lecturas: [],
+        );
+      }
+
+      return ResultadoOperacionLectura(
+        ok: true,
+        mensaje: 'Datos cargados',
+        lecturas: listaLocal,
       );
     } catch (e) {
       return ResultadoOperacionLectura(
@@ -317,9 +348,8 @@ class ControladorLectura {
   }
 
   Future<void> recargarCuentasDesdeServidor() async {
-    final listaRemota = await servicioRemoto.listarTodo();
-    await servicioLocal.limpiarCuentasLocales();
-    await servicioLocal.guardarCuentasIniciales(listaRemota);
+    // Se deja sin recarga remota por ahora para no perder el filtro
+    // de las rutas seleccionadas en esta sesión.
   }
 
   Future<EstadoSincronizacionResumen> obtenerResumenSincronizacion() async {

@@ -5,6 +5,7 @@ import 'screens/pantalla_lectura.dart';
 import 'screens/pantalla_login.dart';
 import 'services/local/servicio_base_datos.dart';
 import 'services/local/servicio_sesion.dart';
+import 'screens/pantalla_seleccion_ruta.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -36,7 +37,7 @@ class MiApp extends StatelessWidget {
           final usuario = snapshot.data;
 
           if (usuario != null) {
-            return PantallaLectura(usuarioSesion: usuario);
+            return PantallaSeleccionRuta(usuarioSesion: usuario);;
           }
 
           return const PantallaLogin();

@@ -7,8 +7,50 @@ import '../core/configuracion_web_service.dart';
 import '../models/lectura.dart';
 
 class ServicioLectura {
-  Future<List<Lectura>> listarTodo() async {
-    final uri = ConfiguracionWebService.lecturaUri();
+  Future<List<int>> listarRutas() async {
+    final uri = ConfiguracionWebService.lecturaUri().replace(
+      queryParameters: {
+        'listar_rutas': '1',
+      },
+    );
+
+    final response = await http.get(uri);
+
+    if (response.statusCode != 200) {
+      throw Exception('El servidor respondió con un error');
+    }
+
+    final body = response.body.trim();
+
+    if (body.startsWith('<!DOCTYPE') || body.startsWith('<html')) {
+      throw Exception('El servicio no respondió correctamente');
+    }
+
+    final data = jsonDecode(body) as Map<String, dynamic>;
+
+    if (data['ok'] == true) {
+      final lista = (data['data'] as List<dynamic>? ?? []);
+
+      return lista
+          .map((e) => int.tryParse((e['ruta'] ?? '').toString()))
+          .whereType<int>()
+          .toList();
+    }
+
+    throw Exception(data['mensaje'] ?? 'No se pudieron listar las rutas');
+  }
+
+  Future<List<Lectura>> listarTodo({List<int>? rutas}) async {
+    Uri uri = ConfiguracionWebService.lecturaUri();
+
+    if (rutas != null && rutas.isNotEmpty) {
+      uri = uri.replace(
+        queryParameters: {
+          'rutas': rutas.join(','),
+        },
+      );
+    }
+
     final response = await http.get(uri);
 
     if (response.statusCode != 200) {

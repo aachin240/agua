@@ -9,6 +9,7 @@ class Lectura {
   final int? idPropietario;
   final String telefonoContacto;
   final String direccionServicio;
+  final int? ruta;
 
   final num lecturaAnterior;
   final num lecturaActual;
@@ -35,6 +36,7 @@ class Lectura {
     this.idPropietario,
     this.telefonoContacto = '',
     this.direccionServicio = '',
+    this.ruta,
     this.lecturaAnterior = 0,
     this.lecturaActual = 0,
     this.consumoM3 = 0,
@@ -90,6 +92,7 @@ class Lectura {
       idPropietario: parseInt(json['id_propietario']),
       telefonoContacto: (json['telefono_contacto'] ?? '').toString(),
       direccionServicio: (json['direccion_servicio'] ?? '').toString(),
+      ruta: parseInt(json['ruta']),
       lecturaAnterior: parseNum(
         json['lectura_anterior'] ?? ultimaLectura['lectura_anterior'],
       ),
@@ -128,6 +131,7 @@ class Lectura {
       'id_propietario': idPropietario,
       'telefono_contacto': telefonoContacto,
       'direccion_servicio': direccionServicio,
+      'ruta': ruta,
       'lectura_anterior': lecturaAnterior,
       'lectura_actual': lecturaActual,
       'consumo_m3': consumoM3,
@@ -153,6 +157,7 @@ class Lectura {
     int? idPropietario,
     String? telefonoContacto,
     String? direccionServicio,
+    int? ruta,
     num? lecturaAnterior,
     num? lecturaActual,
     num? consumoM3,
@@ -176,6 +181,7 @@ class Lectura {
       idPropietario: idPropietario ?? this.idPropietario,
       telefonoContacto: telefonoContacto ?? this.telefonoContacto,
       direccionServicio: direccionServicio ?? this.direccionServicio,
+      ruta: ruta ?? this.ruta,
       lecturaAnterior: lecturaAnterior ?? this.lecturaAnterior,
       lecturaActual: lecturaActual ?? this.lecturaActual,
       consumoM3: consumoM3 ?? this.consumoM3,

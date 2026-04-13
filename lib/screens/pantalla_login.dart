@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import '../models/usuario_sesion.dart';
 import '../services/servicio_autenticacion.dart';
 import '../services/local/servicio_sesion.dart';
-import 'pantalla_lectura.dart';
+import 'pantalla_seleccion_ruta.dart';
 
 class PantallaLogin extends StatefulWidget {
   const PantallaLogin({super.key});
@@ -48,7 +48,7 @@ class _PantallaLoginState extends State<PantallaLogin> {
 
       Navigator.of(context).pushReplacement(
         MaterialPageRoute(
-          builder: (_) => PantallaLectura(usuarioSesion: usuario),
+          builder: (_) => PantallaSeleccionRuta(usuarioSesion: usuario),
         ),
       );
     } catch (e) {
