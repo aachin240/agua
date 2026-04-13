@@ -1,17 +1,15 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 
+import '../core/configuracion_web_service.dart';
 import '../models/usuario_sesion.dart';
 
-class AuthService {
-  static const String loginUrl =
-      'http://192.168.1.5:8093/scriptcase/app/agua_potable/ws_agua_login/';
-
+class ServicioAutenticacion {
   Future<UsuarioSesion> login({
     required String username,
     required String password,
   }) async {
-    final uri = Uri.parse(loginUrl);
+    final uri = ConfiguracionWebService.loginUri();
 
     final response = await http.post(
       uri,

@@ -1,23 +1,23 @@
 import 'package:flutter/material.dart';
 
 import 'models/usuario_sesion.dart';
-import 'screens/lectura_screen.dart';
-import 'screens/login_screen.dart';
-import 'services/local/database_service.dart';
-import 'services/local/session_service.dart';
+import 'screens/pantalla_lectura.dart';
+import 'screens/pantalla_login.dart';
+import 'services/local/servicio_base_datos.dart';
+import 'services/local/servicio_sesion.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  await DatabaseService.instance.database;
-  runApp(const MyApp());
+  await ServicioBaseDatos.instance.database;
+  runApp(const MiApp());
 }
 
-class MyApp extends StatelessWidget {
-  const MyApp({super.key});
+class MiApp extends StatelessWidget {
+  const MiApp({super.key});
 
   Future<UsuarioSesion?> _cargarSesion() async {
-    final sessionService = SessionService();
-    return sessionService.obtenerSesion();
+    final servicioSesion = ServicioSesion();
+    return servicioSesion.obtenerSesion();
   }
 
   @override
@@ -36,10 +36,10 @@ class MyApp extends StatelessWidget {
           final usuario = snapshot.data;
 
           if (usuario != null) {
-            return LecturaScreen(usuarioSesion: usuario);
+            return PantallaLectura(usuarioSesion: usuario);
           }
 
-          return const LoginScreen();
+          return const PantallaLogin();
         },
       ),
     );

@@ -4,7 +4,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../models/usuario_sesion.dart';
 
-class SessionService {
+class ServicioSesion {
   static const String _keyUsuario = 'usuario_sesion';
 
   Future<void> guardarSesion(UsuarioSesion usuario) async {

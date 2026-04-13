@@ -3,14 +3,12 @@ import 'dart:io';
 
 import 'package:http/http.dart' as http;
 
+import '../core/configuracion_web_service.dart';
 import '../models/lectura.dart';
 
-class LecturaService {
-  static const String baseUrl =
-      'http://192.168.1.5:8093/scriptcase/app/agua_potable/ws_agua_lectura/';
-
+class ServicioLectura {
   Future<List<Lectura>> listarTodo() async {
-    final uri = Uri.parse(baseUrl);
+    final uri = ConfiguracionWebService.lecturaUri();
     final response = await http.get(uri);
 
     if (response.statusCode != 200) {
@@ -45,7 +43,7 @@ class LecturaService {
     String? observacion,
     String? fotoPathLocal,
   }) async {
-    final uri = Uri.parse(baseUrl);
+    final uri = ConfiguracionWebService.lecturaUri();
 
     String? fotoBase64;
 
@@ -94,7 +92,9 @@ class LecturaService {
     }
 
     throw Exception(
-      _traducirMensajeError(data['mensaje']?.toString() ?? 'Error al sincronizar'),
+      _traducirMensajeError(
+        data['mensaje']?.toString() ?? 'Error al sincronizar',
+      ),
     );
   }
 

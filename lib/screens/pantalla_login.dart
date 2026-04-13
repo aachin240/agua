@@ -1,23 +1,23 @@
 import 'package:flutter/material.dart';
 
 import '../models/usuario_sesion.dart';
-import '../services/auth_service.dart';
-import '../services/local/session_service.dart';
-import 'lectura_screen.dart';
+import '../services/servicio_autenticacion.dart';
+import '../services/local/servicio_sesion.dart';
+import 'pantalla_lectura.dart';
 
-class LoginScreen extends StatefulWidget {
-  const LoginScreen({super.key});
+class PantallaLogin extends StatefulWidget {
+  const PantallaLogin({super.key});
 
   @override
-  State<LoginScreen> createState() => _LoginScreenState();
+  State<PantallaLogin> createState() => _PantallaLoginState();
 }
 
-class _LoginScreenState extends State<LoginScreen> {
+class _PantallaLoginState extends State<PantallaLogin> {
   final TextEditingController usernameCtrl = TextEditingController();
   final TextEditingController passwordCtrl = TextEditingController();
 
-  final AuthService authService = AuthService();
-  final SessionService sessionService = SessionService();
+  final ServicioAutenticacion servicioAutenticacion = ServicioAutenticacion();
+  final ServicioSesion servicioSesion = ServicioSesion();
 
   bool cargando = false;
   String mensaje = '';
@@ -37,18 +37,18 @@ class _LoginScreenState extends State<LoginScreen> {
     });
 
     try {
-      final UsuarioSesion usuario = await authService.login(
+      final UsuarioSesion usuario = await servicioAutenticacion.login(
         username: usernameCtrl.text,
         password: passwordCtrl.text,
       );
 
-      await sessionService.guardarSesion(usuario);
+      await servicioSesion.guardarSesion(usuario);
 
       if (!mounted) return;
 
       Navigator.of(context).pushReplacement(
         MaterialPageRoute(
-          builder: (_) => LecturaScreen(usuarioSesion: usuario),
+          builder: (_) => PantallaLectura(usuarioSesion: usuario),
         ),
       );
     } catch (e) {

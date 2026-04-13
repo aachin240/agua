@@ -1,6 +1,6 @@
 import '../models/lectura.dart';
-import '../services/lectura_service.dart';
-import '../services/local/lectura_local_service.dart';
+import '../services/servicio_lectura.dart';
+import '../services/local/servicio_lectura_local.dart';
 import '../services/device/servicio_ubicacion.dart';
 
 class ResultadoOperacionLectura {
@@ -36,6 +36,7 @@ class ResultadoSincronizacion {
   final int exitosas;
   final int errores;
   final int conflictos;
+  final List<String> mensajesConflictos;
 
   ResultadoSincronizacion({
     required this.ok,
@@ -44,15 +45,16 @@ class ResultadoSincronizacion {
     required this.exitosas,
     required this.errores,
     required this.conflictos,
+    required this.mensajesConflictos,
   });
 }
 
-class LecturaControlador {
-  final LecturaService servicioRemoto;
-  final LecturaLocalService servicioLocal;
+class ControladorLectura {
+  final ServicioLectura servicioRemoto;
+  final ServicioLecturaLocal servicioLocal;
   final ServicioUbicacion servicioUbicacion;
 
-  LecturaControlador({
+  ControladorLectura({
     required this.servicioRemoto,
     required this.servicioLocal,
     required this.servicioUbicacion,
@@ -346,6 +348,7 @@ class LecturaControlador {
           exitosas: 0,
           errores: 0,
           conflictos: 0,
+          mensajesConflictos: [],
         );
       }
 
@@ -354,6 +357,7 @@ class LecturaControlador {
       int conflictos = 0;
       int actual = 0;
       bool requiereRecarga = false;
+      final List<String> mensajesConflicto = [];
 
       for (final item in pendientes) {
         actual += 1;
@@ -386,6 +390,10 @@ class LecturaControlador {
 
           if (item.idLocal != null) {
             if (esConflictoNoReintentable(mensaje)) {
+              mensajesConflicto.add(
+                'La lectura del medidor ${item.numeroMedidor} no se subió porque ya existe una lectura registrada para este período.',
+              );
+
               await servicioLocal.eliminarPendiente(item.idLocal!);
               conflictos += 1;
               requiereRecarga = true;
@@ -416,6 +424,7 @@ class LecturaControlador {
         exitosas: exitosas,
         errores: errores,
         conflictos: conflictos,
+        mensajesConflictos: mensajesConflicto,
       );
     } catch (e) {
       return ResultadoSincronizacion(
@@ -425,6 +434,7 @@ class LecturaControlador {
         exitosas: 0,
         errores: 0,
         conflictos: 0,
+        mensajesConflictos: [],
       );
     }
   }

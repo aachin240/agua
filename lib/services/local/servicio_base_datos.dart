@@ -1,9 +1,9 @@
 import 'package:path/path.dart';
 import 'package:sqflite/sqflite.dart';
 
-class DatabaseService {
-  DatabaseService._();
-  static final DatabaseService instance = DatabaseService._();
+class ServicioBaseDatos {
+  ServicioBaseDatos._();
+  static final ServicioBaseDatos instance = ServicioBaseDatos._();
 
   static Database? _database;
 
@@ -26,7 +26,7 @@ class DatabaseService {
   }
 
   Future<void> _createDB(Database db, int version) async {
-    // Catálogo local para mostrar/buscar offline
+    // Catálogo local para mostrar y buscar cuentas sin conexión
     await db.execute('''
       CREATE TABLE cuenta_local (
         id_cuenta INTEGER PRIMARY KEY,
@@ -78,7 +78,7 @@ class DatabaseService {
       ON lectura_pendiente(pendiente_sync, estado_sync)
     ''');
 
-    // Evita duplicar la misma lectura local del mismo día para el mismo medidor
+    // Evita registrar dos lecturas locales del mismo medidor en la misma fecha
     await db.execute('''
       CREATE UNIQUE INDEX ux_lectura_pendiente_medidor_fecha
       ON lectura_pendiente(numero_medidor, fecha_lectura)

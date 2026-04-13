@@ -1,10 +1,10 @@
 import 'package:sqflite/sqflite.dart';
 
 import '../../models/lectura.dart';
-import 'database_service.dart';
+import 'servicio_base_datos.dart';
 
-class LecturaLocalService {
-  Future<Database> get _db async => DatabaseService.instance.database;
+class ServicioLecturaLocal {
+  Future<Database> get _db async => ServicioBaseDatos.instance.database;
 
   // =========================
   // CUENTAS LOCALES
