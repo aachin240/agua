@@ -69,7 +69,10 @@ class ControladorLectura {
         );
       }
 
-      final listaRemota = await servicioRemoto.listarTodo(rutas: rutas);
+      final listaRemota = await servicioRemoto.listarTodo(
+        rutas: rutas,
+        bloquearRutas: true,
+      );
 
       if (listaRemota.isEmpty) {
         return ResultadoOperacionLectura(
@@ -348,8 +351,15 @@ class ControladorLectura {
   }
 
   Future<void> recargarCuentasDesdeServidor() async {
-    // Se deja sin recarga remota por ahora para no perder el filtro
-    // de las rutas seleccionadas en esta sesión.
+    final rutas = await servicioLocal.obtenerRutasLocales();
+
+    if (rutas.isEmpty) {
+      return;
+    }
+
+    final listaRemota = await servicioRemoto.listarTodo(rutas: rutas);
+    await servicioLocal.limpiarCuentasLocales();
+    await servicioLocal.guardarCuentasIniciales(listaRemota);
   }
 
   Future<EstadoSincronizacionResumen> obtenerResumenSincronizacion() async {

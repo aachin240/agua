@@ -24,6 +24,7 @@ class ServicioLecturaLocal {
           'id_propietario': lectura.idPropietario,
           'telefono_contacto': lectura.telefonoContacto,
           'direccion_servicio': lectura.direccionServicio,
+          'ruta': lectura.ruta,
           'lectura_anterior': lectura.lecturaAnterior,
           'lectura_actual': lectura.lecturaActual,
           'consumo_m3': lectura.consumoM3,
@@ -235,5 +236,47 @@ class ServicioLecturaLocal {
     );
 
     return result.map((e) => Lectura.fromJson(e)).toList();
+  }
+
+  Future<List<int>> obtenerRutasLocales() async {
+    final db = await _db;
+
+    final result = await db.rawQuery('''
+    SELECT DISTINCT ruta
+    FROM cuenta_local
+    WHERE ruta IS NOT NULL
+    ORDER BY ruta
+  ''');
+
+    return result
+        .map((e) => e['ruta'])
+        .where((e) => e != null)
+        .map((e) => e as int)
+        .toList();
+  }
+
+  Future<bool> hayCuentasLocales() async {
+    final db = await _db;
+
+    final result = await db.rawQuery('''
+      SELECT COUNT(*) AS total
+      FROM cuenta_local
+    ''');
+
+    final total = Sqflite.firstIntValue(result) ?? 0;
+    return total > 0;
+  }
+
+  Future<bool> coincidenRutasLocales(List<int> rutasEsperadas) async {
+    final rutasLocales = await obtenerRutasLocales()..sort();
+    final esperadas = [...rutasEsperadas]..sort();
+
+    if (rutasLocales.length != esperadas.length) return false;
+
+    for (int i = 0; i < rutasLocales.length; i++) {
+      if (rutasLocales[i] != esperadas[i]) return false;
+    }
+
+    return true;
   }
 }

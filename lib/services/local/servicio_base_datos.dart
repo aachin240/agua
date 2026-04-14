@@ -19,22 +19,30 @@ class ServicioBaseDatos {
 
     return openDatabase(
       path,
-      version: 2,
+      version: 4,
       onCreate: _createDB,
       onUpgrade: _onUpgrade,
     );
   }
 
   Future<void> _createDB(Database db, int version) async {
-    // Catálogo local para mostrar y buscar cuentas sin conexión
+    await _crearTablaCuentaLocal(db);
+    await _crearTablaLecturaPendiente(db);
+    await _crearTablaUsuarioOffline(db);
+    await _crearTablaRutaActivaUsuario(db);
+    await _crearIndices(db);
+  }
+
+  Future<void> _crearTablaCuentaLocal(Database db) async {
     await db.execute('''
-      CREATE TABLE cuenta_local (
+      CREATE TABLE IF NOT EXISTS cuenta_local (
         id_cuenta INTEGER PRIMARY KEY,
         codigo_cuenta TEXT,
         numero_medidor TEXT NOT NULL UNIQUE,
         id_propietario INTEGER,
         telefono_contacto TEXT,
         direccion_servicio TEXT,
+        ruta INTEGER,
         lectura_anterior REAL,
         lectura_actual REAL,
         consumo_m3 REAL,
@@ -44,10 +52,11 @@ class ServicioBaseDatos {
         updated_at TEXT
       )
     ''');
+  }
 
-    // Lecturas tomadas offline y pendientes de sincronizar
+  Future<void> _crearTablaLecturaPendiente(Database db) async {
     await db.execute('''
-      CREATE TABLE lectura_pendiente (
+      CREATE TABLE IF NOT EXISTS lectura_pendiente (
         id_local INTEGER PRIMARY KEY AUTOINCREMENT,
         id_cuenta INTEGER NOT NULL,
         numero_medidor TEXT NOT NULL,
@@ -67,21 +76,60 @@ class ServicioBaseDatos {
         sync_error TEXT
       )
     ''');
+  }
 
+  Future<void> _crearTablaUsuarioOffline(Database db) async {
     await db.execute('''
-      CREATE INDEX ix_cuenta_local_medidor
+      CREATE TABLE IF NOT EXISTS usuario_offline (
+        username TEXT PRIMARY KEY,
+        id_usuario INTEGER NOT NULL,
+        nombre TEXT NOT NULL,
+        clave_local TEXT NOT NULL,
+        autorizado INTEGER NOT NULL DEFAULT 1,
+        ultimo_login_online TEXT,
+        ultimo_login_offline TEXT,
+        updated_at TEXT NOT NULL
+      )
+    ''');
+  }
+
+  Future<void> _crearTablaRutaActivaUsuario(Database db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS ruta_activa_usuario (
+        id_local INTEGER PRIMARY KEY AUTOINCREMENT,
+        username TEXT NOT NULL,
+        ruta INTEGER NOT NULL,
+        activa INTEGER NOT NULL DEFAULT 1,
+        updated_at TEXT NOT NULL,
+        UNIQUE(username, ruta)
+      )
+    ''');
+  }
+
+  Future<void> _crearIndices(Database db) async {
+    await db.execute('''
+      CREATE INDEX IF NOT EXISTS ix_cuenta_local_medidor
       ON cuenta_local(numero_medidor)
     ''');
 
     await db.execute('''
-      CREATE INDEX ix_lectura_pendiente_estado
+      CREATE INDEX IF NOT EXISTS ix_lectura_pendiente_estado
       ON lectura_pendiente(pendiente_sync, estado_sync)
     ''');
 
-    // Evita registrar dos lecturas locales del mismo medidor en la misma fecha
     await db.execute('''
-      CREATE UNIQUE INDEX ux_lectura_pendiente_medidor_fecha
+      CREATE UNIQUE INDEX IF NOT EXISTS ux_lectura_pendiente_medidor_fecha
       ON lectura_pendiente(numero_medidor, fecha_lectura)
+    ''');
+
+    await db.execute('''
+      CREATE INDEX IF NOT EXISTS ix_usuario_offline_username
+      ON usuario_offline(username)
+    ''');
+
+    await db.execute('''
+      CREATE INDEX IF NOT EXISTS ix_ruta_activa_usuario_username
+      ON ruta_activa_usuario(username)
     ''');
   }
 
@@ -89,7 +137,15 @@ class ServicioBaseDatos {
     if (oldVersion < 2) {
       await db.execute('DROP TABLE IF EXISTS lectura_pendiente');
       await db.execute('DROP TABLE IF EXISTS cuenta_local');
-      await _createDB(db, newVersion);
+      await _crearTablaCuentaLocal(db);
+      await _crearTablaLecturaPendiente(db);
+      await _crearIndices(db);
+    }
+
+    if (oldVersion < 4) {
+      await _crearTablaUsuarioOffline(db);
+      await _crearTablaRutaActivaUsuario(db);
+      await _crearIndices(db);
     }
   }
 }

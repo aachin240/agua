@@ -3,9 +3,10 @@ import 'package:flutter/material.dart';
 import 'models/usuario_sesion.dart';
 import 'screens/pantalla_lectura.dart';
 import 'screens/pantalla_login.dart';
-import 'services/local/servicio_base_datos.dart';
-import 'services/local/servicio_sesion.dart';
 import 'screens/pantalla_seleccion_ruta.dart';
+import 'services/local/servicio_base_datos.dart';
+import 'services/local/servicio_lectura_local.dart';
+import 'services/local/servicio_sesion.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -13,20 +14,38 @@ void main() async {
   runApp(const MiApp());
 }
 
+class EstadoInicio {
+  final UsuarioSesion? usuario;
+  final bool tieneCuentasLocales;
+
+  const EstadoInicio({
+    required this.usuario,
+    required this.tieneCuentasLocales,
+  });
+}
+
 class MiApp extends StatelessWidget {
   const MiApp({super.key});
 
-  Future<UsuarioSesion?> _cargarSesion() async {
+  Future<EstadoInicio> _cargarEstadoInicio() async {
     final servicioSesion = ServicioSesion();
-    return servicioSesion.obtenerSesion();
+    final servicioLecturaLocal = ServicioLecturaLocal();
+
+    final usuario = await servicioSesion.obtenerSesion();
+    final tieneCuentasLocales = await servicioLecturaLocal.hayCuentasLocales();
+
+    return EstadoInicio(
+      usuario: usuario,
+      tieneCuentasLocales: tieneCuentasLocales,
+    );
   }
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
-      home: FutureBuilder<UsuarioSesion?>(
-        future: _cargarSesion(),
+      home: FutureBuilder<EstadoInicio>(
+        future: _cargarEstadoInicio(),
         builder: (context, snapshot) {
           if (snapshot.connectionState != ConnectionState.done) {
             return const Scaffold(
@@ -34,13 +53,17 @@ class MiApp extends StatelessWidget {
             );
           }
 
-          final usuario = snapshot.data;
+          final estado = snapshot.data;
 
-          if (usuario != null) {
-            return PantallaSeleccionRuta(usuarioSesion: usuario);;
+          if (estado == null || estado.usuario == null) {
+            return const PantallaLogin();
           }
 
-          return const PantallaLogin();
+          if (estado.tieneCuentasLocales) {
+            return PantallaLectura(usuarioSesion: estado.usuario!);
+          }
+
+          return PantallaSeleccionRuta(usuarioSesion: estado.usuario!);
         },
       ),
     );

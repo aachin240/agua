@@ -4,6 +4,7 @@ import '../controllers/controlador_lectura.dart';
 import '../models/usuario_sesion.dart';
 import '../services/device/servicio_ubicacion.dart';
 import '../services/local/servicio_lectura_local.dart';
+import '../services/local/servicio_usuario_local.dart';
 import '../services/servicio_lectura.dart';
 import 'pantalla_lectura.dart';
 
@@ -22,9 +23,12 @@ class PantallaSeleccionRuta extends StatefulWidget {
 class _PantallaSeleccionRutaState extends State<PantallaSeleccionRuta> {
   late final ControladorLectura controlador;
   final ServicioLectura servicioLectura = ServicioLectura();
+  final ServicioLecturaLocal servicioLecturaLocal = ServicioLecturaLocal();
+  final ServicioUsuarioLocal servicioUsuarioLocal = ServicioUsuarioLocal();
 
   bool cargando = false;
   bool cargandoRutas = true;
+  bool tieneEntornoLocal = false;
   String mensaje = '';
 
   List<int> rutas = [];
@@ -36,11 +40,31 @@ class _PantallaSeleccionRutaState extends State<PantallaSeleccionRuta> {
 
     controlador = ControladorLectura(
       servicioRemoto: servicioLectura,
-      servicioLocal: ServicioLecturaLocal(),
+      servicioLocal: servicioLecturaLocal,
       servicioUbicacion: ServicioUbicacion(),
     );
 
-    cargarRutas();
+    cargarEstadoInicial();
+  }
+
+  Future<void> cargarEstadoInicial() async {
+    final rutasGuardadas = await servicioUsuarioLocal.obtenerRutasActivas(
+      widget.usuarioSesion.username,
+    );
+
+    final hayCuentasLocales = await servicioLecturaLocal.hayCuentasLocales();
+    final coincidenLocal = rutasGuardadas.isNotEmpty
+        ? await servicioLecturaLocal.coincidenRutasLocales(rutasGuardadas)
+        : false;
+
+    if (!mounted) return;
+
+    setState(() {
+      rutasSeleccionadas = [...rutasGuardadas]..sort();
+      tieneEntornoLocal = hayCuentasLocales && coincidenLocal && rutasGuardadas.isNotEmpty;
+    });
+
+    await cargarRutas();
   }
 
   Future<void> cargarRutas() async {
@@ -55,24 +79,31 @@ class _PantallaSeleccionRutaState extends State<PantallaSeleccionRuta> {
       if (!mounted) return;
 
       setState(() {
-        rutas = lista;
+        rutas = lista..sort();
         cargandoRutas = false;
 
-        rutasSeleccionadas = rutasSeleccionadas
-            .where((r) => rutas.contains(r))
-            .toList();
+        if (tieneEntornoLocal && rutasSeleccionadas.isNotEmpty) {
+          mensaje =
+          'Se restauraron tus rutas activas guardadas. Puedes continuar aunque no vuelvas a descargarlas.';
+        }
       });
     } catch (e) {
       if (!mounted) return;
       setState(() {
         cargandoRutas = false;
-        mensaje = 'Error al cargar rutas: $e';
+
+        if (tieneEntornoLocal && rutasSeleccionadas.isNotEmpty) {
+          mensaje =
+          'No se pudieron consultar rutas en línea, pero puedes continuar con tus rutas activas guardadas.';
+        } else {
+          mensaje = 'Error al cargar rutas: $e';
+        }
       });
     }
   }
 
   Future<void> abrirSelectorRutas() async {
-    final seleccionTemporal = Set<int>.from(rutasSeleccionadas);
+    final seleccionTemporal = <int>{};
 
     final resultado = await showDialog<List<int>>(
       context: context,
@@ -127,6 +158,7 @@ class _PantallaSeleccionRutaState extends State<PantallaSeleccionRuta> {
     if (resultado != null && mounted) {
       setState(() {
         rutasSeleccionadas = resultado;
+        tieneEntornoLocal = false;
       });
     }
   }
@@ -144,29 +176,55 @@ class _PantallaSeleccionRutaState extends State<PantallaSeleccionRuta> {
       mensaje = '';
     });
 
-    final resultado = await controlador.cargarRutas(rutasSeleccionadas);
+    try {
+      if (tieneEntornoLocal) {
+        if (!mounted) return;
 
-    if (!mounted) return;
-
-    if (resultado.ok) {
-      Navigator.of(context).pushReplacement(
-        MaterialPageRoute(
-          builder: (_) => PantallaLectura(
-            usuarioSesion: widget.usuarioSesion,
+        Navigator.of(context).pushReplacement(
+          MaterialPageRoute(
+            builder: (_) => PantallaLectura(
+              usuarioSesion: widget.usuarioSesion,
+            ),
           ),
-        ),
-      );
-      return;
-    }
+        );
+        return;
+      }
 
-    setState(() {
-      cargando = false;
-      mensaje = resultado.mensaje;
-    });
+      final resultado = await controlador.cargarRutas(rutasSeleccionadas);
+
+      if (!mounted) return;
+
+      if (resultado.ok) {
+        await servicioUsuarioLocal.guardarRutasActivas(
+          username: widget.usuarioSesion.username,
+          rutas: rutasSeleccionadas,
+        );
+
+        Navigator.of(context).pushReplacement(
+          MaterialPageRoute(
+            builder: (_) => PantallaLectura(
+              usuarioSesion: widget.usuarioSesion,
+            ),
+          ),
+        );
+        return;
+      }
+
+      setState(() {
+        mensaje = resultado.mensaje;
+      });
+    } finally {
+      if (!mounted) return;
+      setState(() {
+        cargando = false;
+      });
+    }
   }
 
   @override
   Widget build(BuildContext context) {
+    final puedeCambiarSeleccion = !tieneEntornoLocal;
+
     return Scaffold(
       appBar: AppBar(
         title: const Text('Seleccionar rutas'),
@@ -196,8 +254,10 @@ class _PantallaSeleccionRutaState extends State<PantallaSeleccionRuta> {
                       ),
                     ),
                     const SizedBox(height: 8),
-                    const Text(
-                      'Selecciona una o varias rutas para trabajar',
+                    Text(
+                      tieneEntornoLocal
+                          ? 'Tienes rutas activas restauradas para seguir trabajando'
+                          : 'Selecciona una o varias rutas para trabajar',
                       textAlign: TextAlign.center,
                     ),
                     const SizedBox(height: 20),
@@ -211,10 +271,14 @@ class _PantallaSeleccionRutaState extends State<PantallaSeleccionRuta> {
                         crossAxisAlignment: CrossAxisAlignment.stretch,
                         children: [
                           OutlinedButton.icon(
-                            onPressed: cargando ? null : abrirSelectorRutas,
+                            onPressed: (cargando || !puedeCambiarSeleccion)
+                                ? null
+                                : abrirSelectorRutas,
                             icon: const Icon(Icons.playlist_add_check),
                             label: Text(
-                              rutasSeleccionadas.isEmpty
+                              tieneEntornoLocal
+                                  ? 'Rutas restauradas'
+                                  : rutasSeleccionadas.isEmpty
                                   ? 'Seleccionar rutas'
                                   : 'Cambiar selección',
                             ),
@@ -258,20 +322,11 @@ class _PantallaSeleccionRutaState extends State<PantallaSeleccionRuta> {
                     SizedBox(
                       width: double.infinity,
                       child: ElevatedButton.icon(
-                        onPressed: (cargando || cargandoRutas) ? null : continuar,
-                        icon: const Icon(Icons.download),
+                        onPressed: cargando ? null : continuar,
+                        icon: const Icon(Icons.arrow_forward),
                         label: Text(
-                          cargando ? 'Cargando...' : 'Cargar rutas',
+                          cargando ? 'Procesando...' : 'Continuar',
                         ),
-                      ),
-                    ),
-                    const SizedBox(height: 10),
-                    SizedBox(
-                      width: double.infinity,
-                      child: OutlinedButton.icon(
-                        onPressed: (cargando || cargandoRutas) ? null : cargarRutas,
-                        icon: const Icon(Icons.refresh),
-                        label: const Text('Actualizar rutas'),
                       ),
                     ),
                   ],

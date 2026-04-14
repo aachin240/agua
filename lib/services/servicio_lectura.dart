@@ -40,13 +40,17 @@ class ServicioLectura {
     throw Exception(data['mensaje'] ?? 'No se pudieron listar las rutas');
   }
 
-  Future<List<Lectura>> listarTodo({List<int>? rutas}) async {
+  Future<List<Lectura>> listarTodo({
+    List<int>? rutas,
+    bool bloquearRutas = false,
+  }) async {
     Uri uri = ConfiguracionWebService.lecturaUri();
 
     if (rutas != null && rutas.isNotEmpty) {
       uri = uri.replace(
         queryParameters: {
           'rutas': rutas.join(','),
+          if (bloquearRutas) 'bloquear_rutas': '1',
         },
       );
     }

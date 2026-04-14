@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
 
 import '../models/usuario_sesion.dart';
-import '../services/servicio_autenticacion.dart';
+import '../services/local/servicio_lectura_local.dart';
 import '../services/local/servicio_sesion.dart';
+import '../services/local/servicio_usuario_local.dart';
+import '../services/servicio_autenticacion.dart';
+import 'pantalla_lectura.dart';
 import 'pantalla_seleccion_ruta.dart';
 
 class PantallaLogin extends StatefulWidget {
@@ -18,6 +21,8 @@ class _PantallaLoginState extends State<PantallaLogin> {
 
   final ServicioAutenticacion servicioAutenticacion = ServicioAutenticacion();
   final ServicioSesion servicioSesion = ServicioSesion();
+  final ServicioUsuarioLocal servicioUsuarioLocal = ServicioUsuarioLocal();
+  final ServicioLecturaLocal servicioLecturaLocal = ServicioLecturaLocal();
 
   bool cargando = false;
   String mensaje = '';
@@ -31,6 +36,16 @@ class _PantallaLoginState extends State<PantallaLogin> {
   }
 
   Future<void> iniciarSesion() async {
+    final username = usernameCtrl.text.trim();
+    final password = passwordCtrl.text;
+
+    if (username.isEmpty || password.isEmpty) {
+      setState(() {
+        mensaje = 'Ingresa usuario y clave';
+      });
+      return;
+    }
+
     setState(() {
       cargando = true;
       mensaje = '';
@@ -38,8 +53,13 @@ class _PantallaLoginState extends State<PantallaLogin> {
 
     try {
       final UsuarioSesion usuario = await servicioAutenticacion.login(
-        username: usernameCtrl.text,
-        password: passwordCtrl.text,
+        username: username,
+        password: password,
+      );
+
+      await servicioUsuarioLocal.guardarUsuarioAutorizado(
+        usuario: usuario,
+        clave: password,
       );
 
       await servicioSesion.guardarSesion(usuario);
@@ -51,11 +71,47 @@ class _PantallaLoginState extends State<PantallaLogin> {
           builder: (_) => PantallaSeleccionRuta(usuarioSesion: usuario),
         ),
       );
+      return;
     } catch (e) {
-      if (!mounted) return;
-      setState(() {
-        mensaje = e.toString().replaceFirst('Exception: ', '');
-      });
+      try {
+        final usuarioOffline = await servicioUsuarioLocal.validarLoginOffline(
+          username: username,
+          clave: password,
+        );
+
+        if (usuarioOffline == null) {
+          throw Exception(
+            'No se pudo iniciar sesión en línea y este usuario no está autorizado offline en este dispositivo.',
+          );
+        }
+
+        final rutasActivas = await servicioUsuarioLocal.obtenerRutasActivas(
+          usuarioOffline.username,
+        );
+        final hayCuentasLocales = await servicioLecturaLocal.hayCuentasLocales();
+
+        if (!hayCuentasLocales || rutasActivas.isEmpty) {
+          throw Exception(
+            'El usuario está autorizado offline, pero no tiene rutas activas cargadas en este dispositivo.',
+          );
+        }
+
+        await servicioSesion.guardarSesion(usuarioOffline);
+
+        if (!mounted) return;
+
+        Navigator.of(context).pushReplacement(
+          MaterialPageRoute(
+            builder: (_) => PantallaLectura(usuarioSesion: usuarioOffline),
+          ),
+        );
+        return;
+      } catch (offlineError) {
+        if (!mounted) return;
+        setState(() {
+          mensaje = offlineError.toString().replaceFirst('Exception: ', '');
+        });
+      }
     } finally {
       if (!mounted) return;
       setState(() {
