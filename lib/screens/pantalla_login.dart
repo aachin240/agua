@@ -7,6 +7,7 @@ import '../services/local/servicio_usuario_local.dart';
 import '../services/servicio_autenticacion.dart';
 import 'pantalla_lectura.dart';
 import 'pantalla_seleccion_ruta.dart';
+import 'pantalla_inicio_operativo.dart';
 
 class PantallaLogin extends StatefulWidget {
   const PantallaLogin({super.key});
@@ -66,13 +67,14 @@ class _PantallaLoginState extends State<PantallaLogin> {
 
       if (!mounted) return;
 
-      Navigator.of(context).pushReplacement(
+      Navigator.of(context).pushAndRemoveUntil(
         MaterialPageRoute(
-          builder: (_) => PantallaSeleccionRuta(usuarioSesion: usuario),
+          builder: (_) => PantallaInicioOperativo(usuarioSesion: usuario),
         ),
+            (route) => false,
       );
       return;
-    } catch (e) {
+    } catch (_) {
       try {
         final usuarioOffline = await servicioUsuarioLocal.validarLoginOffline(
           username: username,
@@ -88,7 +90,11 @@ class _PantallaLoginState extends State<PantallaLogin> {
         final rutasActivas = await servicioUsuarioLocal.obtenerRutasActivas(
           usuarioOffline.username,
         );
-        final hayCuentasLocales = await servicioLecturaLocal.hayCuentasLocales();
+
+        final hayCuentasLocales =
+        await servicioLecturaLocal.hayCuentasLocalesDeUsuario(
+          usuarioOffline.username,
+        );
 
         if (!hayCuentasLocales || rutasActivas.isEmpty) {
           throw Exception(
@@ -100,10 +106,13 @@ class _PantallaLoginState extends State<PantallaLogin> {
 
         if (!mounted) return;
 
-        Navigator.of(context).pushReplacement(
+        Navigator.of(context).pushAndRemoveUntil(
           MaterialPageRoute(
-            builder: (_) => PantallaLectura(usuarioSesion: usuarioOffline),
+            builder: (_) => PantallaInicioOperativo(
+              usuarioSesion: usuarioOffline,
+            ),
           ),
+              (route) => false,
         );
         return;
       } catch (offlineError) {

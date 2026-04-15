@@ -1,11 +1,9 @@
 import 'package:flutter/material.dart';
 
 import 'models/usuario_sesion.dart';
-import 'screens/pantalla_lectura.dart';
+import 'screens/pantalla_inicio_operativo.dart';
 import 'screens/pantalla_login.dart';
-import 'screens/pantalla_seleccion_ruta.dart';
 import 'services/local/servicio_base_datos.dart';
-import 'services/local/servicio_lectura_local.dart';
 import 'services/local/servicio_sesion.dart';
 
 void main() async {
@@ -16,11 +14,9 @@ void main() async {
 
 class EstadoInicio {
   final UsuarioSesion? usuario;
-  final bool tieneCuentasLocales;
 
   const EstadoInicio({
     required this.usuario,
-    required this.tieneCuentasLocales,
   });
 }
 
@@ -29,14 +25,10 @@ class MiApp extends StatelessWidget {
 
   Future<EstadoInicio> _cargarEstadoInicio() async {
     final servicioSesion = ServicioSesion();
-    final servicioLecturaLocal = ServicioLecturaLocal();
-
     final usuario = await servicioSesion.obtenerSesion();
-    final tieneCuentasLocales = await servicioLecturaLocal.hayCuentasLocales();
 
     return EstadoInicio(
       usuario: usuario,
-      tieneCuentasLocales: tieneCuentasLocales,
     );
   }
 
@@ -59,11 +51,9 @@ class MiApp extends StatelessWidget {
             return const PantallaLogin();
           }
 
-          if (estado.tieneCuentasLocales) {
-            return PantallaLectura(usuarioSesion: estado.usuario!);
-          }
-
-          return PantallaSeleccionRuta(usuarioSesion: estado.usuario!);
+          return PantallaInicioOperativo(
+            usuarioSesion: estado.usuario!,
+          );
         },
       ),
     );

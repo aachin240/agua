@@ -13,6 +13,8 @@ class FormularioNuevaLectura extends StatelessWidget {
   final String? fotoFechaTomaExif;
   final double? fotoLatitudExif;
   final double? fotoLongitudExif;
+  final String? errorLecturaActual;
+  final ValueChanged<String>? onLecturaActualChanged;
   final VoidCallback onTomarFoto;
   final VoidCallback onCancelar;
   final VoidCallback onGuardar;
@@ -27,6 +29,8 @@ class FormularioNuevaLectura extends StatelessWidget {
     required this.fotoFechaTomaExif,
     required this.fotoLatitudExif,
     required this.fotoLongitudExif,
+    required this.errorLecturaActual,
+    required this.onLecturaActualChanged,
     required this.onTomarFoto,
     required this.onCancelar,
     required this.onGuardar,
@@ -95,8 +99,10 @@ class FormularioNuevaLectura extends StatelessWidget {
             TextField(
               controller: lecturaActualCtrl,
               keyboardType: const TextInputType.numberWithOptions(decimal: true),
+              onChanged: onLecturaActualChanged,
               decoration: InputDecoration(
                 labelText: 'Lectura actual',
+                errorText: errorLecturaActual,
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(14),
                 ),

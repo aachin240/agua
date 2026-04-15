@@ -10,14 +10,29 @@ class ServicioLecturaLocal {
   // CUENTAS LOCALES
   // =========================
 
-  Future<void> guardarCuentasIniciales(List<Lectura> lecturas) async {
+  Future<void> guardarCuentasIniciales({
+    required String usernameOwner,
+    required List<Lectura> lecturas,
+    bool reemplazarExistentes = true,
+  }) async {
     final db = await _db;
     final batch = db.batch();
+
+    if (reemplazarExistentes) {
+      batch.delete(
+        'cuenta_local',
+        where: 'username_owner = ?',
+        whereArgs: [usernameOwner],
+      );
+    }
+
+    final ahora = DateTime.now().toIso8601String();
 
     for (final lectura in lecturas) {
       batch.insert(
         'cuenta_local',
         {
+          'username_owner': usernameOwner,
           'id_cuenta': lectura.idCuenta,
           'codigo_cuenta': lectura.codigoCuenta,
           'numero_medidor': lectura.numeroMedidor,
@@ -31,7 +46,7 @@ class ServicioLecturaLocal {
           'fecha_lectura': lectura.fechaLectura?.toString(),
           'id_lectura': lectura.idLectura,
           'id_periodo': lectura.idPeriodo,
-          'updated_at': DateTime.now().toIso8601String(),
+          'updated_at': ahora,
         },
         conflictAlgorithm: ConflictAlgorithm.replace,
       );
@@ -40,24 +55,34 @@ class ServicioLecturaLocal {
     await batch.commit(noResult: true);
   }
 
-  Future<List<Lectura>> listarTodo() async {
+  Future<List<Lectura>> listarTodo({
+    required String usernameOwner,
+    int? ruta,
+  }) async {
     final db = await _db;
 
     final result = await db.query(
       'cuenta_local',
+      where: ruta != null
+          ? 'username_owner = ? AND ruta = ?'
+          : 'username_owner = ?',
+      whereArgs: ruta != null ? [usernameOwner, ruta] : [usernameOwner],
       orderBy: 'numero_medidor ASC',
     );
 
     return result.map((e) => Lectura.fromJson(e)).toList();
   }
 
-  Future<Lectura?> buscarPorMedidor(String numeroMedidor) async {
+  Future<Lectura?> buscarPorMedidor({
+    required String usernameOwner,
+    required String numeroMedidor,
+  }) async {
     final db = await _db;
 
     final result = await db.query(
       'cuenta_local',
-      where: 'numero_medidor = ?',
-      whereArgs: [numeroMedidor],
+      where: 'username_owner = ? AND numero_medidor = ?',
+      whereArgs: [usernameOwner, numeroMedidor],
       limit: 1,
     );
 
@@ -66,6 +91,7 @@ class ServicioLecturaLocal {
   }
 
   Future<void> actualizarCuentaLocalDespuesDeLectura({
+    required String usernameOwner,
     required String numeroMedidor,
     required num lecturaAnterior,
     required num lecturaActual,
@@ -83,9 +109,67 @@ class ServicioLecturaLocal {
         'fecha_lectura': fechaLectura,
         'updated_at': DateTime.now().toIso8601String(),
       },
-      where: 'numero_medidor = ?',
-      whereArgs: [numeroMedidor],
+      where: 'username_owner = ? AND numero_medidor = ?',
+      whereArgs: [usernameOwner, numeroMedidor],
     );
+  }
+
+  Future<void> limpiarCuentasLocalesDeUsuario(String usernameOwner) async {
+    final db = await _db;
+
+    await db.delete(
+      'cuenta_local',
+      where: 'username_owner = ?',
+      whereArgs: [usernameOwner],
+    );
+  }
+
+  Future<bool> hayCuentasLocalesDeUsuario(String usernameOwner) async {
+    final db = await _db;
+
+    final result = await db.rawQuery('''
+      SELECT COUNT(*) AS total
+      FROM cuenta_local
+      WHERE username_owner = ?
+    ''', [usernameOwner]);
+
+    final total = Sqflite.firstIntValue(result) ?? 0;
+    return total > 0;
+  }
+
+  Future<List<int>> obtenerRutasLocalesDeUsuario(String usernameOwner) async {
+    final db = await _db;
+
+    final result = await db.rawQuery('''
+      SELECT DISTINCT ruta
+      FROM cuenta_local
+      WHERE username_owner = ?
+        AND ruta IS NOT NULL
+      ORDER BY ruta
+    ''', [usernameOwner]);
+
+    return result
+        .map((e) => int.tryParse(e['ruta'].toString()) ?? 0)
+        .where((e) => e > 0)
+        .toList();
+  }
+
+  Future<bool> coincidenRutasLocales({
+    required String usernameOwner,
+    required List<int> rutasEsperadas,
+  }) async {
+    final rutasLocales = await obtenerRutasLocalesDeUsuario(usernameOwner)
+      ..sort();
+
+    final esperadas = [...rutasEsperadas]..sort();
+
+    if (rutasLocales.length != esperadas.length) return false;
+
+    for (int i = 0; i < rutasLocales.length; i++) {
+      if (rutasLocales[i] != esperadas[i]) return false;
+    }
+
+    return true;
   }
 
   // =========================
@@ -93,6 +177,7 @@ class ServicioLecturaLocal {
   // =========================
 
   Future<void> guardarLecturaPendiente({
+    required String usernameOwner,
     required int idCuenta,
     required String numeroMedidor,
     required num lecturaAnterior,
@@ -110,6 +195,7 @@ class ServicioLecturaLocal {
     await db.insert(
       'lectura_pendiente',
       {
+        'username_owner': usernameOwner,
         'id_cuenta': idCuenta,
         'numero_medidor': numeroMedidor,
         'lectura_anterior': lecturaAnterior,
@@ -130,12 +216,15 @@ class ServicioLecturaLocal {
     );
   }
 
-  Future<List<Lectura>> obtenerPendientesSync() async {
+  Future<List<Lectura>> obtenerPendientesSync({
+    required String usernameOwner,
+  }) async {
     final db = await _db;
 
     final result = await db.query(
       'lectura_pendiente',
-      where: 'pendiente_sync = 1',
+      where: 'username_owner = ? AND pendiente_sync = 1',
+      whereArgs: [usernameOwner],
       orderBy: 'updated_local_at ASC',
     );
 
@@ -151,6 +240,20 @@ class ServicioLecturaLocal {
         'pendiente_sync': 0,
         'estado_sync': 'synced',
         'synced_at': DateTime.now().toIso8601String(),
+        'sync_error': null,
+      },
+      where: 'id_local = ?',
+      whereArgs: [idLocal],
+    );
+  }
+
+  Future<void> marcarComoSincronizando(int idLocal) async {
+    final db = await _db;
+
+    await db.update(
+      'lectura_pendiente',
+      {
+        'estado_sync': 'syncing',
         'sync_error': null,
       },
       where: 'id_local = ?',
@@ -183,100 +286,42 @@ class ServicioLecturaLocal {
     );
   }
 
-  Future<void> limpiarCuentasLocales() async {
-    final db = await _db;
-    await db.delete('cuenta_local');
-  }
-
-  Future<void> marcarComoSincronizando(int idLocal) async {
-    final db = await _db;
-
-    await db.update(
-      'lectura_pendiente',
-      {
-        'estado_sync': 'syncing',
-        'sync_error': null,
-      },
-      where: 'id_local = ?',
-      whereArgs: [idLocal],
-    );
-  }
-
-  Future<int> contarPendientes() async {
-    final db = await _db;
-
-    final result = await db.rawQuery('''
-    SELECT COUNT(*) AS total
-    FROM lectura_pendiente
-    WHERE pendiente_sync = 1
-  ''');
-
-    return (result.first['total'] as int?) ?? 0;
-  }
-
-  Future<int> contarErrores() async {
-    final db = await _db;
-
-    final result = await db.rawQuery('''
-    SELECT COUNT(*) AS total
-    FROM lectura_pendiente
-    WHERE estado_sync IN ('error', 'conflict')
-  ''');
-
-    return (result.first['total'] as int?) ?? 0;
-  }
-
-  Future<List<Lectura>> obtenerConError() async {
-    final db = await _db;
-
-    final result = await db.query(
-      'lectura_pendiente',
-      where: "estado_sync IN ('error', 'conflict')",
-      orderBy: 'updated_local_at ASC',
-    );
-
-    return result.map((e) => Lectura.fromJson(e)).toList();
-  }
-
-  Future<List<int>> obtenerRutasLocales() async {
-    final db = await _db;
-
-    final result = await db.rawQuery('''
-    SELECT DISTINCT ruta
-    FROM cuenta_local
-    WHERE ruta IS NOT NULL
-    ORDER BY ruta
-  ''');
-
-    return result
-        .map((e) => e['ruta'])
-        .where((e) => e != null)
-        .map((e) => e as int)
-        .toList();
-  }
-
-  Future<bool> hayCuentasLocales() async {
+  Future<int> contarPendientes(String usernameOwner) async {
     final db = await _db;
 
     final result = await db.rawQuery('''
       SELECT COUNT(*) AS total
-      FROM cuenta_local
-    ''');
+      FROM lectura_pendiente
+      WHERE username_owner = ?
+        AND pendiente_sync = 1
+    ''', [usernameOwner]);
 
-    final total = Sqflite.firstIntValue(result) ?? 0;
-    return total > 0;
+    return Sqflite.firstIntValue(result) ?? 0;
   }
 
-  Future<bool> coincidenRutasLocales(List<int> rutasEsperadas) async {
-    final rutasLocales = await obtenerRutasLocales()..sort();
-    final esperadas = [...rutasEsperadas]..sort();
+  Future<int> contarErrores(String usernameOwner) async {
+    final db = await _db;
 
-    if (rutasLocales.length != esperadas.length) return false;
+    final result = await db.rawQuery('''
+      SELECT COUNT(*) AS total
+      FROM lectura_pendiente
+      WHERE username_owner = ?
+        AND estado_sync IN ('error', 'conflict')
+    ''', [usernameOwner]);
 
-    for (int i = 0; i < rutasLocales.length; i++) {
-      if (rutasLocales[i] != esperadas[i]) return false;
-    }
+    return Sqflite.firstIntValue(result) ?? 0;
+  }
 
-    return true;
+  Future<List<Lectura>> obtenerConError(String usernameOwner) async {
+    final db = await _db;
+
+    final result = await db.query(
+      'lectura_pendiente',
+      where: "username_owner = ? AND estado_sync IN ('error', 'conflict')",
+      whereArgs: [usernameOwner],
+      orderBy: 'updated_local_at ASC',
+    );
+
+    return result.map((e) => Lectura.fromJson(e)).toList();
   }
 }

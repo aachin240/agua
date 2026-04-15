@@ -19,7 +19,7 @@ class ServicioBaseDatos {
 
     return openDatabase(
       path,
-      version: 4,
+      version: 5,
       onCreate: _createDB,
       onUpgrade: _onUpgrade,
     );
@@ -36,9 +36,11 @@ class ServicioBaseDatos {
   Future<void> _crearTablaCuentaLocal(Database db) async {
     await db.execute('''
       CREATE TABLE IF NOT EXISTS cuenta_local (
-        id_cuenta INTEGER PRIMARY KEY,
+        id_local INTEGER PRIMARY KEY AUTOINCREMENT,
+        username_owner TEXT NOT NULL,
+        id_cuenta INTEGER NOT NULL,
         codigo_cuenta TEXT,
-        numero_medidor TEXT NOT NULL UNIQUE,
+        numero_medidor TEXT NOT NULL,
         id_propietario INTEGER,
         telefono_contacto TEXT,
         direccion_servicio TEXT,
@@ -58,6 +60,7 @@ class ServicioBaseDatos {
     await db.execute('''
       CREATE TABLE IF NOT EXISTS lectura_pendiente (
         id_local INTEGER PRIMARY KEY AUTOINCREMENT,
+        username_owner TEXT NOT NULL,
         id_cuenta INTEGER NOT NULL,
         numero_medidor TEXT NOT NULL,
         lectura_anterior REAL NOT NULL,
@@ -108,18 +111,28 @@ class ServicioBaseDatos {
 
   Future<void> _crearIndices(Database db) async {
     await db.execute('''
-      CREATE INDEX IF NOT EXISTS ix_cuenta_local_medidor
-      ON cuenta_local(numero_medidor)
+      CREATE UNIQUE INDEX IF NOT EXISTS ux_cuenta_local_owner_cuenta
+      ON cuenta_local(username_owner, id_cuenta)
     ''');
 
     await db.execute('''
-      CREATE INDEX IF NOT EXISTS ix_lectura_pendiente_estado
-      ON lectura_pendiente(pendiente_sync, estado_sync)
+      CREATE UNIQUE INDEX IF NOT EXISTS ux_cuenta_local_owner_medidor
+      ON cuenta_local(username_owner, numero_medidor)
     ''');
 
     await db.execute('''
-      CREATE UNIQUE INDEX IF NOT EXISTS ux_lectura_pendiente_medidor_fecha
-      ON lectura_pendiente(numero_medidor, fecha_lectura)
+      CREATE INDEX IF NOT EXISTS ix_cuenta_local_owner_ruta
+      ON cuenta_local(username_owner, ruta)
+    ''');
+
+    await db.execute('''
+      CREATE INDEX IF NOT EXISTS ix_lectura_pendiente_owner_estado
+      ON lectura_pendiente(username_owner, pendiente_sync, estado_sync)
+    ''');
+
+    await db.execute('''
+      CREATE UNIQUE INDEX IF NOT EXISTS ux_lectura_pendiente_owner_medidor_fecha
+      ON lectura_pendiente(username_owner, numero_medidor, fecha_lectura)
     ''');
 
     await db.execute('''
@@ -134,18 +147,15 @@ class ServicioBaseDatos {
   }
 
   Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
-    if (oldVersion < 2) {
-      await db.execute('DROP TABLE IF EXISTS lectura_pendiente');
+    if (oldVersion < 5) {
+      // Como cambia la estructura local a multiusuario,
+      // reiniciamos solo la caché local del dispositivo.
       await db.execute('DROP TABLE IF EXISTS cuenta_local');
-      await _crearTablaCuentaLocal(db);
-      await _crearTablaLecturaPendiente(db);
-      await _crearIndices(db);
-    }
+      await db.execute('DROP TABLE IF EXISTS lectura_pendiente');
+      await db.execute('DROP TABLE IF EXISTS usuario_offline');
+      await db.execute('DROP TABLE IF EXISTS ruta_activa_usuario');
 
-    if (oldVersion < 4) {
-      await _crearTablaUsuarioOffline(db);
-      await _crearTablaRutaActivaUsuario(db);
-      await _crearIndices(db);
+      await _createDB(db, newVersion);
     }
   }
 }

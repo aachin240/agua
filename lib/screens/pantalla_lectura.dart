@@ -8,19 +8,21 @@ import '../services/device/servicio_ubicacion.dart';
 import '../services/local/servicio_lectura_local.dart';
 import '../services/local/servicio_sesion.dart';
 import '../services/servicio_lectura.dart';
-import '../widgets/tarjeta_busqueda_medidor.dart';
-import '../widgets/tarjeta_sincronizacion.dart';
-import '../widgets/tarjeta_detalle_cuenta.dart';
 import '../widgets/formulario_nueva_lectura.dart';
 import '../widgets/item_lectura.dart';
+import '../widgets/tarjeta_busqueda_medidor.dart';
+import '../widgets/tarjeta_detalle_cuenta.dart';
+import '../widgets/tarjeta_sincronizacion.dart';
 import 'pantalla_login.dart';
 
 class PantallaLectura extends StatefulWidget {
   final UsuarioSesion usuarioSesion;
+  final int? rutaFiltro;
 
   const PantallaLectura({
     super.key,
     required this.usuarioSesion,
+    this.rutaFiltro,
   });
 
   @override
@@ -49,6 +51,7 @@ class _PantallaLecturaState extends State<PantallaLectura> {
   List<Lectura> lecturas = [];
 
   String mensaje = '';
+  String? errorLecturaActual;
   bool cargando = false;
   bool mostrarDetalle = false;
   bool mostrarFormularioGuardar = false;
@@ -58,6 +61,8 @@ class _PantallaLecturaState extends State<PantallaLectura> {
   String? fotoFechaTomaExif;
   double? fotoLatitudExif;
   double? fotoLongitudExif;
+
+  String get usernameOwner => widget.usuarioSesion.username;
 
   @override
   void initState() {
@@ -81,7 +86,9 @@ class _PantallaLecturaState extends State<PantallaLectura> {
   }
 
   Future<void> cargarResumenSync() async {
-    final resumen = await controlador.obtenerResumenSincronizacion();
+    final resumen = await controlador.obtenerResumenSincronizacion(
+      usernameOwner: usernameOwner,
+    );
 
     if (!mounted) return;
 
@@ -100,6 +107,7 @@ class _PantallaLecturaState extends State<PantallaLectura> {
     });
 
     final resultado = await controlador.sincronizarPendientes(
+      usernameOwner: usernameOwner,
       onProgress: (actual, total) {
         if (!mounted) return;
         setState(() {
@@ -142,6 +150,52 @@ class _PantallaLecturaState extends State<PantallaLectura> {
     lecturaActualCtrl.clear();
     observacionCtrl.clear();
     limpiarFotoTemporal();
+    limpiarErrorLecturaActual();
+  }
+
+  void limpiarErrorLecturaActual() {
+    errorLecturaActual = null;
+  }
+
+  bool esErrorDeCampoLectura(String texto) {
+    final t = texto.toLowerCase();
+
+    return t.contains('lectura actual debe ser mayor') ||
+        t.contains('lectura actual no puede ser negativa') ||
+        t.contains('ingresa una lectura actual válida');
+  }
+
+  bool esAlertaInmediata(String texto) {
+    final t = texto.toLowerCase();
+
+    return t.contains('debes tomar una foto') ||
+        t.contains('servicio de ubicación está desactivado') ||
+        t.contains('permiso de ubicación denegado') ||
+        t.contains('permiso de ubicación denegado permanentemente') ||
+        t.contains('error al tomar la foto');
+  }
+
+  Future<void> mostrarDialogoAlerta({
+    required String titulo,
+    required String mensaje,
+  }) async {
+    if (!mounted) return;
+
+    await showDialog<void>(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: Text(titulo),
+          content: Text(mensaje),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('Aceptar'),
+            ),
+          ],
+        );
+      },
+    );
   }
 
   Future<void> cargarDatosIniciales() async {
@@ -152,9 +206,14 @@ class _PantallaLecturaState extends State<PantallaLectura> {
       mostrarDetalle = false;
       mostrarFormularioGuardar = false;
       lectura = null;
+      errorLecturaActual = null;
     });
 
-    final resultado = await controlador.cargarDatosIniciales();
+    final resultado = await controlador.listarDesdeBaseLocal(
+      usernameOwner: usernameOwner,
+      ruta: widget.rutaFiltro,
+    );
+
     await cargarResumenSync();
 
     if (!mounted) return;
@@ -175,9 +234,14 @@ class _PantallaLecturaState extends State<PantallaLectura> {
       lectura = null;
       mensaje = '';
       limpiarFormulario();
+      errorLecturaActual = null;
     });
 
-    final resultado = await controlador.listarDesdeBaseLocal();
+    final resultado = await controlador.listarDesdeBaseLocal(
+      usernameOwner: usernameOwner,
+      ruta: widget.rutaFiltro,
+    );
+
     await cargarResumenSync();
 
     if (!mounted) return;
@@ -193,9 +257,13 @@ class _PantallaLecturaState extends State<PantallaLectura> {
     setState(() {
       cargando = true;
       mensaje = '';
+      errorLecturaActual = null;
     });
 
-    final resultado = await controlador.buscarPorMedidor(medidorCtrl.text);
+    final resultado = await controlador.buscarPorMedidor(
+      usernameOwner: usernameOwner,
+      numeroMedidor: medidorCtrl.text,
+    );
 
     if (!mounted) return;
 
@@ -243,9 +311,11 @@ class _PantallaLecturaState extends State<PantallaLectura> {
       });
     } catch (e) {
       if (!mounted) return;
-      setState(() {
-        mensaje = 'Error al tomar la foto: $e';
-      });
+
+      await mostrarDialogoAlerta(
+        titulo: 'No se pudo tomar la foto',
+        mensaje: e.toString().replaceFirst('Exception: ', ''),
+      );
     }
   }
 
@@ -253,9 +323,11 @@ class _PantallaLecturaState extends State<PantallaLectura> {
     setState(() {
       cargando = true;
       mensaje = '';
+      errorLecturaActual = null;
     });
 
     final resultado = await controlador.guardarLecturaOffline(
+      usernameOwner: usernameOwner,
       cuenta: lectura,
       numeroMedidor: medidorCtrl.text,
       textoLecturaActual: lecturaActualCtrl.text,
@@ -272,17 +344,44 @@ class _PantallaLecturaState extends State<PantallaLectura> {
 
     if (!mounted) return;
 
-    setState(() {
-      cargando = false;
-      mensaje = resultado.mensaje;
-
-      if (resultado.ok) {
+    if (resultado.ok) {
+      setState(() {
+        cargando = false;
+        mensaje = resultado.mensaje;
         lectura = resultado.lectura;
         mostrarLista = false;
         mostrarDetalle = true;
         mostrarFormularioGuardar = false;
         limpiarFormulario();
-      }
+      });
+      return;
+    }
+
+    final texto = resultado.mensaje;
+
+    if (esErrorDeCampoLectura(texto)) {
+      setState(() {
+        cargando = false;
+        errorLecturaActual = texto;
+      });
+      return;
+    }
+
+    if (esAlertaInmediata(texto)) {
+      setState(() {
+        cargando = false;
+      });
+
+      await mostrarDialogoAlerta(
+        titulo: 'Atención',
+        mensaje: texto,
+      );
+      return;
+    }
+
+    setState(() {
+      cargando = false;
+      mensaje = texto;
     });
   }
 
@@ -364,7 +463,11 @@ class _PantallaLecturaState extends State<PantallaLectura> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text('Lecturas - ${widget.usuarioSesion.username}'),
+        title: Text(
+          widget.rutaFiltro != null
+              ? 'Ruta ${widget.rutaFiltro} - ${widget.usuarioSesion.username}'
+              : 'Lecturas - ${widget.usuarioSesion.username}',
+        ),
         centerTitle: true,
         actions: [
           IconButton(
@@ -374,8 +477,9 @@ class _PantallaLecturaState extends State<PantallaLectura> {
 
               if (!mounted) return;
 
-              Navigator.of(context).pushReplacement(
+              Navigator.of(context).pushAndRemoveUntil(
                 MaterialPageRoute(builder: (_) => const PantallaLogin()),
+                    (route) => false,
               );
             },
             icon: const Icon(Icons.logout),
@@ -446,6 +550,14 @@ class _PantallaLecturaState extends State<PantallaLectura> {
                 fotoFechaTomaExif: fotoFechaTomaExif,
                 fotoLatitudExif: fotoLatitudExif,
                 fotoLongitudExif: fotoLongitudExif,
+                errorLecturaActual: errorLecturaActual,
+                onLecturaActualChanged: (_) {
+                  if (errorLecturaActual != null) {
+                    setState(() {
+                      errorLecturaActual = null;
+                    });
+                  }
+                },
                 onTomarFoto: tomarFoto,
                 onCancelar: () {
                   setState(() {

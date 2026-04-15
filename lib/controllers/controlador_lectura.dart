@@ -60,7 +60,10 @@ class ControladorLectura {
     required this.servicioUbicacion,
   });
 
-  Future<ResultadoOperacionLectura> cargarRutas(List<int> rutas) async {
+  Future<ResultadoOperacionLectura> cargarRutas({
+    required String usernameOwner,
+    required List<int> rutas,
+  }) async {
     try {
       if (rutas.isEmpty) {
         return ResultadoOperacionLectura(
@@ -81,10 +84,15 @@ class ControladorLectura {
         );
       }
 
-      await servicioLocal.limpiarCuentasLocales();
-      await servicioLocal.guardarCuentasIniciales(listaRemota);
+      await servicioLocal.limpiarCuentasLocalesDeUsuario(usernameOwner);
+      await servicioLocal.guardarCuentasIniciales(
+        usernameOwner: usernameOwner,
+        lecturas: listaRemota,
+      );
 
-      final listaGuardada = await servicioLocal.listarTodo();
+      final listaGuardada = await servicioLocal.listarTodo(
+        usernameOwner: usernameOwner,
+      );
 
       return ResultadoOperacionLectura(
         ok: true,
@@ -99,9 +107,15 @@ class ControladorLectura {
     }
   }
 
-  Future<ResultadoOperacionLectura> cargarDatosIniciales() async {
+  Future<ResultadoOperacionLectura> cargarDatosIniciales({
+    required String usernameOwner,
+    int? ruta,
+  }) async {
     try {
-      final listaLocal = await servicioLocal.listarTodo();
+      final listaLocal = await servicioLocal.listarTodo(
+        usernameOwner: usernameOwner,
+        ruta: ruta,
+      );
 
       if (listaLocal.isEmpty) {
         return ResultadoOperacionLectura(
@@ -124,9 +138,15 @@ class ControladorLectura {
     }
   }
 
-  Future<ResultadoOperacionLectura> listarDesdeBaseLocal() async {
+  Future<ResultadoOperacionLectura> listarDesdeBaseLocal({
+    required String usernameOwner,
+    int? ruta,
+  }) async {
     try {
-      final lista = await servicioLocal.listarTodo();
+      final lista = await servicioLocal.listarTodo(
+        usernameOwner: usernameOwner,
+        ruta: ruta,
+      );
 
       return ResultadoOperacionLectura(
         ok: true,
@@ -141,9 +161,10 @@ class ControladorLectura {
     }
   }
 
-  Future<ResultadoOperacionLectura> buscarPorMedidor(
-      String numeroMedidor,
-      ) async {
+  Future<ResultadoOperacionLectura> buscarPorMedidor({
+    required String usernameOwner,
+    required String numeroMedidor,
+  }) async {
     try {
       if (numeroMedidor.trim().isEmpty) {
         return ResultadoOperacionLectura(
@@ -152,7 +173,10 @@ class ControladorLectura {
         );
       }
 
-      final dato = await servicioLocal.buscarPorMedidor(numeroMedidor.trim());
+      final dato = await servicioLocal.buscarPorMedidor(
+        usernameOwner: usernameOwner,
+        numeroMedidor: numeroMedidor.trim(),
+      );
 
       if (dato == null) {
         return ResultadoOperacionLectura(
@@ -219,6 +243,7 @@ class ControladorLectura {
   }
 
   Future<ResultadoOperacionLectura> guardarLecturaOffline({
+    required String usernameOwner,
     required Lectura? cuenta,
     required String numeroMedidor,
     required String textoLecturaActual,
@@ -260,6 +285,7 @@ class ControladorLectura {
       final fechaLectura = fechaActualSoloFecha();
 
       await servicioLocal.guardarLecturaPendiente(
+        usernameOwner: usernameOwner,
         idCuenta: cuenta.idCuenta!,
         numeroMedidor: numeroMedidor.trim(),
         lecturaAnterior: lecturaAnterior,
@@ -274,6 +300,7 @@ class ControladorLectura {
       );
 
       await servicioLocal.actualizarCuentaLocalDespuesDeLectura(
+        usernameOwner: usernameOwner,
         numeroMedidor: numeroMedidor.trim(),
         lecturaAnterior: lecturaAnterior,
         lecturaActual: lecturaActual,
@@ -281,8 +308,10 @@ class ControladorLectura {
         fechaLectura: fechaLectura,
       );
 
-      final datoActualizado =
-      await servicioLocal.buscarPorMedidor(numeroMedidor.trim());
+      final datoActualizado = await servicioLocal.buscarPorMedidor(
+        usernameOwner: usernameOwner,
+        numeroMedidor: numeroMedidor.trim(),
+      );
 
       return ResultadoOperacionLectura(
         ok: true,
@@ -322,7 +351,7 @@ class ControladorLectura {
       return 'El servicio no respondió correctamente';
     }
 
-    if (lower.contains('no existe la foto local')) {
+    if (lower.contains('no se encontró la foto guardada en el dispositivo')) {
       return 'No se encontró la foto guardada en el dispositivo';
     }
 
@@ -350,22 +379,30 @@ class ControladorLectura {
     return m.contains('ya existe una lectura registrada para este período');
   }
 
-  Future<void> recargarCuentasDesdeServidor() async {
-    final rutas = await servicioLocal.obtenerRutasLocales();
+  Future<void> recargarCuentasDesdeServidor({
+    required String usernameOwner,
+  }) async {
+    final rutas = await servicioLocal.obtenerRutasLocalesDeUsuario(usernameOwner);
 
     if (rutas.isEmpty) {
       return;
     }
 
     final listaRemota = await servicioRemoto.listarTodo(rutas: rutas);
-    await servicioLocal.limpiarCuentasLocales();
-    await servicioLocal.guardarCuentasIniciales(listaRemota);
+
+    await servicioLocal.limpiarCuentasLocalesDeUsuario(usernameOwner);
+    await servicioLocal.guardarCuentasIniciales(
+      usernameOwner: usernameOwner,
+      lecturas: listaRemota,
+    );
   }
 
-  Future<EstadoSincronizacionResumen> obtenerResumenSincronizacion() async {
-    final pendientes = await servicioLocal.contarPendientes();
-    final errores = await servicioLocal.contarErrores();
-    final conError = await servicioLocal.obtenerConError();
+  Future<EstadoSincronizacionResumen> obtenerResumenSincronizacion({
+    required String usernameOwner,
+  }) async {
+    final pendientes = await servicioLocal.contarPendientes(usernameOwner);
+    final errores = await servicioLocal.contarErrores(usernameOwner);
+    final conError = await servicioLocal.obtenerConError(usernameOwner);
 
     return EstadoSincronizacionResumen(
       pendientes: pendientes,
@@ -375,10 +412,13 @@ class ControladorLectura {
   }
 
   Future<ResultadoSincronizacion> sincronizarPendientes({
+    required String usernameOwner,
     void Function(int actual, int total)? onProgress,
   }) async {
     try {
-      final pendientes = await servicioLocal.obtenerPendientesSync();
+      final pendientes = await servicioLocal.obtenerPendientesSync(
+        usernameOwner: usernameOwner,
+      );
 
       if (pendientes.isEmpty) {
         return ResultadoSincronizacion(
@@ -449,7 +489,7 @@ class ControladorLectura {
 
       if (requiereRecarga) {
         try {
-          await recargarCuentasDesdeServidor();
+          await recargarCuentasDesdeServidor(usernameOwner: usernameOwner);
         } catch (_) {}
       }
 
@@ -478,5 +518,4 @@ class ControladorLectura {
       );
     }
   }
-
 }
