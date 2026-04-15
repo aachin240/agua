@@ -5,8 +5,6 @@ import '../services/local/servicio_lectura_local.dart';
 import '../services/local/servicio_sesion.dart';
 import '../services/local/servicio_usuario_local.dart';
 import '../services/servicio_autenticacion.dart';
-import 'pantalla_lectura.dart';
-import 'pantalla_seleccion_ruta.dart';
 import 'pantalla_inicio_operativo.dart';
 
 class PantallaLogin extends StatefulWidget {

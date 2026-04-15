@@ -6,7 +6,6 @@ import '../services/device/servicio_ubicacion.dart';
 import '../services/local/servicio_lectura_local.dart';
 import '../services/local/servicio_usuario_local.dart';
 import '../services/servicio_lectura.dart';
-import 'pantalla_lectura.dart';
 import 'pantalla_inicio_operativo.dart';
 
 class PantallaSeleccionRuta extends StatefulWidget {
@@ -215,12 +214,13 @@ class _PantallaSeleccionRutaState extends State<PantallaSeleccionRuta> {
           rutas: rutasSeleccionadas,
         );
 
-        Navigator.of(context).pushReplacement(
+        Navigator.of(context).pushAndRemoveUntil(
           MaterialPageRoute(
-            builder: (_) => PantallaLectura(
+            builder: (_) => PantallaInicioOperativo(
               usuarioSesion: widget.usuarioSesion,
             ),
           ),
+              (route) => false,
         );
         return;
       }

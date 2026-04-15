@@ -221,12 +221,20 @@ class ServicioLecturaLocal {
   }) async {
     final db = await _db;
 
-    final result = await db.query(
-      'lectura_pendiente',
-      where: 'username_owner = ? AND pendiente_sync = 1',
-      whereArgs: [usernameOwner],
-      orderBy: 'updated_local_at ASC',
-    );
+    final result = await db.rawQuery('''
+    SELECT 
+      p.*,
+      c.ruta,
+      c.codigo_cuenta,
+      c.direccion_servicio
+    FROM lectura_pendiente p
+    LEFT JOIN cuenta_local c
+      ON c.username_owner = p.username_owner
+     AND c.id_cuenta = p.id_cuenta
+    WHERE p.username_owner = ?
+      AND p.pendiente_sync = 1
+    ORDER BY p.updated_local_at ASC
+  ''', [usernameOwner]);
 
     return result.map((e) => Lectura.fromJson(e)).toList();
   }
@@ -321,6 +329,85 @@ class ServicioLecturaLocal {
       whereArgs: [usernameOwner],
       orderBy: 'updated_local_at ASC',
     );
+
+    return result.map((e) => Lectura.fromJson(e)).toList();
+  }
+
+  Future<void> marcarComoConflicto(int idLocal, String error) async {
+    final db = await _db;
+
+    await db.update(
+      'lectura_pendiente',
+      {
+        'pendiente_sync': 0,
+        'estado_sync': 'conflict',
+        'sync_error': error,
+        'synced_at': DateTime.now().toIso8601String(),
+      },
+      where: 'id_local = ?',
+      whereArgs: [idLocal],
+    );
+  }
+
+  Future<List<Lectura>> obtenerSincronizadas(String usernameOwner) async {
+    final db = await _db;
+
+    final result = await db.rawQuery('''
+    SELECT 
+      p.*,
+      c.ruta,
+      c.codigo_cuenta,
+      c.direccion_servicio
+    FROM lectura_pendiente p
+    LEFT JOIN cuenta_local c
+      ON c.username_owner = p.username_owner
+     AND c.id_cuenta = p.id_cuenta
+    WHERE p.username_owner = ?
+      AND p.estado_sync = 'synced'
+    ORDER BY p.synced_at DESC, p.updated_local_at DESC
+  ''', [usernameOwner]);
+
+    return result.map((e) => Lectura.fromJson(e)).toList();
+  }
+
+  Future<List<Lectura>> obtenerConflictos(String usernameOwner) async {
+    final db = await _db;
+
+    final result = await db.rawQuery('''
+    SELECT 
+      p.*,
+      c.ruta,
+      c.codigo_cuenta,
+      c.direccion_servicio
+    FROM lectura_pendiente p
+    LEFT JOIN cuenta_local c
+      ON c.username_owner = p.username_owner
+     AND c.id_cuenta = p.id_cuenta
+    WHERE p.username_owner = ?
+      AND p.estado_sync = 'conflict'
+    ORDER BY p.updated_local_at DESC
+  ''', [usernameOwner]);
+
+    return result.map((e) => Lectura.fromJson(e)).toList();
+  }
+
+  Future<List<Lectura>> obtenerErrores(String usernameOwner) async {
+    final db = await _db;
+
+    final result = await db.rawQuery('''
+    SELECT 
+      p.*,
+      c.ruta,
+      c.codigo_cuenta,
+      c.direccion_servicio
+    FROM lectura_pendiente p
+    LEFT JOIN cuenta_local c
+      ON c.username_owner = p.username_owner
+     AND c.id_cuenta = p.id_cuenta
+    WHERE p.username_owner = ?
+      AND p.estado_sync = 'error'
+    ORDER BY p.updated_local_at DESC
+  ''', [usernameOwner]);
 
     return result.map((e) => Lectura.fromJson(e)).toList();
   }

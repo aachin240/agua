@@ -3,9 +3,11 @@ import 'package:flutter/material.dart';
 import '../models/usuario_sesion.dart';
 import '../services/local/servicio_lectura_local.dart';
 import '../services/local/servicio_usuario_local.dart';
-import 'pantalla_lectura.dart';
+import '../services/local/servicio_sesion.dart';
+import 'pantalla_login.dart';
 import 'pantalla_rutas_activas.dart';
 import 'pantalla_seleccion_ruta.dart';
+import 'pantalla_sincronizacion.dart';
 
 class PantallaInicioOperativo extends StatefulWidget {
   final UsuarioSesion usuarioSesion;
@@ -79,41 +81,31 @@ class _PantallaInicioOperativoState extends State<PantallaInicioOperativo> {
       return;
     }
 
-    if (rutasActivas.length == 1) {
-      if (!mounted) return;
-
-      Navigator.of(context).push(
-        MaterialPageRoute(
-          builder: (_) => PantallaLectura(
-            usuarioSesion: widget.usuarioSesion,
-            rutaFiltro: rutasActivas.first,
-          ),
-        ),
-      );
-      return;
-    }
-
     if (!mounted) return;
 
-    Navigator.of(context).push(
+    await Navigator.of(context).push(
       MaterialPageRoute(
         builder: (_) => PantallaRutasActivas(
           usuarioSesion: widget.usuarioSesion,
         ),
       ),
     );
+
+    await cargarEstado();
   }
 
-  Future<void> abrirSincronizacionYLecturas() async {
+  Future<void> abrirSincronizacion() async {
     if (!mounted) return;
 
-    Navigator.of(context).push(
+    await Navigator.of(context).push(
       MaterialPageRoute(
-        builder: (_) => PantallaLectura(
+        builder: (_) => PantallaSincronizacion(
           usuarioSesion: widget.usuarioSesion,
         ),
       ),
     );
+
+    await cargarEstado();
   }
 
   Future<void> gestionarRutas() async {
@@ -135,7 +127,6 @@ class _PantallaInicioOperativoState extends State<PantallaInicioOperativo> {
     required String titulo,
     required String descripcion,
     required VoidCallback onTap,
-    Color? color,
     Widget? trailing,
   }) {
     return Card(
@@ -179,9 +170,9 @@ class _PantallaInicioOperativoState extends State<PantallaInicioOperativo> {
                   ],
                 ),
               ),
-              Icon(
+              const Icon(
                 Icons.chevron_right,
-                color: color ?? Colors.black45,
+                color: Colors.black45,
               ),
             ],
           ),
@@ -200,6 +191,23 @@ class _PantallaInicioOperativoState extends State<PantallaInicioOperativo> {
       appBar: AppBar(
         title: const Text('Inicio operativo'),
         centerTitle: true,
+        actions: [
+          IconButton(
+            onPressed: () async {
+              final servicioSesion = ServicioSesion();
+              await servicioSesion.cerrarSesion();
+
+              if (!mounted) return;
+
+              Navigator.of(context).pushAndRemoveUntil(
+                MaterialPageRoute(builder: (_) => const PantallaLogin()),
+                    (route) => false,
+              );
+            },
+            icon: const Icon(Icons.logout),
+            tooltip: 'Cerrar sesión',
+          ),
+        ],
       ),
       body: RefreshIndicator(
         onRefresh: cargarEstado,
@@ -233,15 +241,9 @@ class _PantallaInicioOperativoState extends State<PantallaInicioOperativo> {
                       spacing: 8,
                       runSpacing: 8,
                       children: [
-                        Chip(
-                          label: Text('Rutas activas: $rutasTexto'),
-                        ),
-                        Chip(
-                          label: Text('Pendientes: $pendientes'),
-                        ),
-                        Chip(
-                          label: Text('Errores: $errores'),
-                        ),
+                        Chip(label: Text('Rutas activas: $rutasTexto')),
+                        Chip(label: Text('Pendientes: $pendientes')),
+                        Chip(label: Text('Errores: $errores')),
                       ],
                     ),
                   ],
@@ -265,19 +267,15 @@ class _PantallaInicioOperativoState extends State<PantallaInicioOperativo> {
               _tarjetaAccion(
                 icono: Icons.route,
                 titulo: 'Continuar con rutas activas',
-                descripcion: rutasActivas.isEmpty
-                    ? 'No tienes rutas activas descargadas'
-                    : rutasActivas.length == 1
-                    ? 'Entrar directamente a la ruta ${rutasActivas.first}'
-                    : 'Elegir una de tus rutas activas descargadas',
+                descripcion: 'Ver y elegir una de tus rutas activas descargadas.',
                 onTap: continuarConRutasActivas,
               ),
               _tarjetaAccion(
                 icono: Icons.sync,
                 titulo: 'Sincronizar pendientes',
                 descripcion:
-                'Abrir el módulo actual de lecturas y sincronización para revisar pendientes, conflictos y errores.',
-                onTap: abrirSincronizacionYLecturas,
+                'Abrir la pantalla de sincronización para revisar pendientes, sincronizadas, conflictos y errores.',
+                onTap: abrirSincronizacion,
                 trailing: Row(
                   children: [
                     Chip(label: Text('Pendientes: $pendientes')),

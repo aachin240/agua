@@ -12,7 +12,6 @@ import '../widgets/formulario_nueva_lectura.dart';
 import '../widgets/item_lectura.dart';
 import '../widgets/tarjeta_busqueda_medidor.dart';
 import '../widgets/tarjeta_detalle_cuenta.dart';
-import '../widgets/tarjeta_sincronizacion.dart';
 import 'pantalla_login.dart';
 
 class PantallaLectura extends StatefulWidget {
@@ -41,18 +40,13 @@ class _PantallaLecturaState extends State<PantallaLectura> {
   final TextEditingController lecturaActualCtrl = TextEditingController();
   final TextEditingController observacionCtrl = TextEditingController();
 
-  int pendientesSync = 0;
-  int erroresSync = 0;
-  bool sincronizando = false;
-  String progresoSync = '';
-  List<Lectura> lecturasConError = [];
-
   Lectura? lectura;
   List<Lectura> lecturas = [];
 
   String mensaje = '';
   String? errorLecturaActual;
   bool cargando = false;
+  bool tomandoFoto = false;
   bool mostrarDetalle = false;
   bool mostrarFormularioGuardar = false;
   bool mostrarLista = true;
@@ -85,60 +79,6 @@ class _PantallaLecturaState extends State<PantallaLectura> {
     super.dispose();
   }
 
-  Future<void> cargarResumenSync() async {
-    final resumen = await controlador.obtenerResumenSincronizacion(
-      usernameOwner: usernameOwner,
-    );
-
-    if (!mounted) return;
-
-    setState(() {
-      pendientesSync = resumen.pendientes;
-      erroresSync = resumen.errores;
-      lecturasConError = resumen.conError;
-    });
-  }
-
-  Future<void> sincronizarAhora() async {
-    setState(() {
-      sincronizando = true;
-      progresoSync = '';
-      mensaje = '';
-    });
-
-    final resultado = await controlador.sincronizarPendientes(
-      usernameOwner: usernameOwner,
-      onProgress: (actual, total) {
-        if (!mounted) return;
-        setState(() {
-          progresoSync = 'Sincronizando $actual de $total';
-        });
-      },
-    );
-
-    await listarTodo();
-    await cargarResumenSync();
-
-    if (!mounted) return;
-
-    setState(() {
-      sincronizando = false;
-      progresoSync = '';
-
-      String texto =
-          '${resultado.mensaje}. '
-          'Exitosas: ${resultado.exitosas}, '
-          'Errores: ${resultado.errores}, '
-          'Conflictos: ${resultado.conflictos}';
-
-      if (resultado.mensajesConflictos.isNotEmpty) {
-        texto += '\n\n${resultado.mensajesConflictos.join('\n')}';
-      }
-
-      mensaje = texto;
-    });
-  }
-
   void limpiarFotoTemporal() {
     fotoGuardadaPath = null;
     fotoFechaTomaExif = null;
@@ -151,6 +91,7 @@ class _PantallaLecturaState extends State<PantallaLectura> {
     observacionCtrl.clear();
     limpiarFotoTemporal();
     limpiarErrorLecturaActual();
+    tomandoFoto = false;
   }
 
   void limpiarErrorLecturaActual() {
@@ -214,8 +155,6 @@ class _PantallaLecturaState extends State<PantallaLectura> {
       ruta: widget.rutaFiltro,
     );
 
-    await cargarResumenSync();
-
     if (!mounted) return;
 
     setState(() {
@@ -241,8 +180,6 @@ class _PantallaLecturaState extends State<PantallaLectura> {
       usernameOwner: usernameOwner,
       ruta: widget.rutaFiltro,
     );
-
-    await cargarResumenSync();
 
     if (!mounted) return;
 
@@ -288,7 +225,10 @@ class _PantallaLecturaState extends State<PantallaLectura> {
   }
 
   Future<void> tomarFoto() async {
+    if (tomandoFoto) return;
+
     setState(() {
+      tomandoFoto = true;
       mensaje = '';
     });
 
@@ -300,21 +240,39 @@ class _PantallaLecturaState extends State<PantallaLectura> {
         longitudActual: posicion.longitude,
       );
 
-      if (resultado == null || !mounted) return;
+      if (!mounted) return;
+
+      if (resultado == null) {
+        setState(() {
+          tomandoFoto = false;
+        });
+        return;
+      }
 
       setState(() {
         fotoGuardadaPath = resultado.rutaFotoGuardada;
         fotoFechaTomaExif = resultado.fechaToma;
         fotoLatitudExif = resultado.latitud;
         fotoLongitudExif = resultado.longitud;
+        tomandoFoto = false;
         mensaje = 'Foto tomada correctamente';
       });
     } catch (e) {
       if (!mounted) return;
 
+      final texto = e.toString().replaceFirst('Exception: ', '').trim();
+
+      setState(() {
+        tomandoFoto = false;
+      });
+
+      if (texto.isEmpty || texto.toLowerCase() == 'null') {
+        return;
+      }
+
       await mostrarDialogoAlerta(
         titulo: 'No se pudo tomar la foto',
-        mensaje: e.toString().replaceFirst('Exception: ', ''),
+        mensaje: texto,
       );
     }
   }
@@ -337,10 +295,6 @@ class _PantallaLecturaState extends State<PantallaLectura> {
           : observacionCtrl.text.trim(),
       usuarioRegistro: widget.usuarioSesion.username,
     );
-
-    if (resultado.ok) {
-      await cargarResumenSync();
-    }
 
     if (!mounted) return;
 
@@ -515,16 +469,6 @@ class _PantallaLecturaState extends State<PantallaLectura> {
                 child: Text(mensaje),
               ),
             ],
-            const SizedBox(height: 16),
-            TarjetaSincronizacion(
-              pendientesSync: pendientesSync,
-              erroresSync: erroresSync,
-              cargando: cargando,
-              sincronizando: sincronizando,
-              progresoSync: progresoSync,
-              lecturasConError: lecturasConError,
-              onSincronizar: sincronizarAhora,
-            ),
             if (mostrarDetalle && lectura != null) ...[
               const SizedBox(height: 16),
               TarjetaDetalleCuenta(
@@ -545,7 +489,7 @@ class _PantallaLecturaState extends State<PantallaLectura> {
                 lectura: lectura!,
                 lecturaActualCtrl: lecturaActualCtrl,
                 observacionCtrl: observacionCtrl,
-                cargando: cargando,
+                cargando: cargando || tomandoFoto,
                 fotoGuardadaPath: fotoGuardadaPath,
                 fotoFechaTomaExif: fotoFechaTomaExif,
                 fotoLatitudExif: fotoLatitudExif,

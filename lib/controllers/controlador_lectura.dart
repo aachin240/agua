@@ -232,7 +232,7 @@ class ControladorLectura {
             0;
 
     if (lecturaActual <= lecturaAnterior) {
-      return 'La lectura actual debe ser mayor que la lectura anterior';
+      return 'La lectura actual debe ser mayor';
     }
 
     if (fotoPathLocal == null || fotoPathLocal.trim().isEmpty) {
@@ -368,7 +368,7 @@ class ControladorLectura {
     }
 
     if (lower.contains('la lectura actual debe ser mayor')) {
-      return 'La lectura actual debe ser mayor que la anterior';
+      return 'La lectura actual debe ser mayor';
     }
 
     return limpio;
@@ -474,7 +474,7 @@ class ControladorLectura {
                 'La lectura del medidor ${item.numeroMedidor} no se subió porque ya existe una lectura registrada para este período.',
               );
 
-              await servicioLocal.eliminarPendiente(item.idLocal!);
+              await servicioLocal.marcarComoConflicto(item.idLocal!, mensaje);
               conflictos += 1;
               requiereRecarga = true;
             } else {
